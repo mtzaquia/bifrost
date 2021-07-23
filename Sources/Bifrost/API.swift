@@ -71,7 +71,7 @@ public extension API {
     let requestPath: String
     do {
       queryParameters = try request.queryParameters(dictEncoder)
-      requestPath = self.requestPath(for: Request.path, with: queryParameters)
+      requestPath = self.requestPath(for: Request.path, with: try dictEncoder.encode(request))
     } catch {
       callback(.failure(error))
       return
