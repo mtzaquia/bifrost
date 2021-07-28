@@ -26,45 +26,45 @@ import Foundation
 import Bifrost
 
 enum SunriseSunsetAPI: API {
-  static var baseURL: String = "https://api.sunrise-sunset.org/"
+	static var baseURL: String = "https://api.sunrise-sunset.org/"
 
-  static func configureEncoder(_ encoder: inout DictionaryEncoder) {
-    encoder.keyEncodingStrategy = .convertToSnakeCase
-  }
+	static func configureEncoder(_ encoder: inout DictionaryEncoder) {
+		encoder.keyEncodingStrategy = .convertToSnakeCase
+	}
 
-  static func configureJSONDecoder(_ decoder: inout JSONDecoder) {
-    decoder.dateDecodingStrategy = .iso8601
-    decoder.keyDecodingStrategy = .convertFromSnakeCase
-  }
+	static func configureJSONDecoder(_ decoder: inout JSONDecoder) {
+		decoder.dateDecodingStrategy = .iso8601
+		decoder.keyDecodingStrategy = .convertFromSnakeCase
+	}
 }
 
 // Requests, Models
 
 struct Request {
-  private(set) var latitude: String
-  private(set) var longitude: String
-  private(set) var date: Date?
-  private(set) var formatted: Bool = false
+	private(set) var latitude: String
+	private(set) var longitude: String
+	private(set) var date: Date?
+	private(set) var formatted: Bool = false
 
-  enum CodingKeys: String, CodingKey {
-    case latitude = "lat"
-    case longitude = "lng"
-    case date
-    case formatted
-  }
+	enum CodingKeys: String, CodingKey {
+		case latitude = "lat"
+		case longitude = "lng"
+		case date
+		case formatted
+	}
 }
 
 extension Request: Requestable {
-  static var path: String = "json"
+	static var path: String = "json"
 
-  struct Response: Decodable {
-    let status: String
-    let results: Results
+	struct Response: Decodable {
+		let status: String
+		let results: Results
 
-    struct Results: Decodable {
-      let sunrise: Date
-      let sunset: Date
-      let dayLength: TimeInterval
-    }
-  }
+		struct Results: Decodable {
+			let sunrise: Date
+			let sunset: Date
+			let dayLength: TimeInterval
+		}
+	}
 }

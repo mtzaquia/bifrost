@@ -25,7 +25,7 @@
 import Foundation
 
 extension Dictionary {
-  func mapKeys<Transformed>(_ transform: (Key) throws -> Transformed) rethrows -> [Transformed: Value] {
-    .init(uniqueKeysWithValues: try map { (try transform($0.key), $0.value) })
-  }
+	func mapKeys<Transformed>(_ transform: (Key) throws -> Transformed) rethrows -> [Transformed: Value] {
+		.init(uniqueKeysWithValues: try map { (try transform($0.key), $0.value) })
+	}
 }

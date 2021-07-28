@@ -28,60 +28,60 @@ import Bifrost
 // API Declaration
 
 enum NewYorkTimesAPI: API {
-  static let baseURL: String = "https://api.nytimes.com/svc/search/v2/"
-  static var defaultQueryParameters: [String : Any] = [
-    "api-key": "<...>"
-  ]
-
-  static func configureJSONDecoder(_ decoder: inout JSONDecoder) {
-    decoder.dateDecodingStrategy = .iso8601
-  }
+	static let baseURL: String = "https://api.nytimes.com/svc/search/v2/"
+	static var defaultQueryParameters: [String : Any] = [
+		"api-key": "<...>"
+	]
+	
+	static func configureJSONDecoder(_ decoder: inout JSONDecoder) {
+		decoder.dateDecodingStrategy = .iso8601
+	}
 }
 
 // Requests, Models
 
 struct GenericResponse<Wrapped>: Decodable where Wrapped: Decodable {
-  let status: String
-  let response: Wrapped
+	let status: String
+	let response: Wrapped
 }
 
 struct ArticleSearchRequest {
-  private(set) var query: String
-  private(set) var filters: String?
-
-  enum CodingKeys: String, CodingKey {
-    case query = "q"
-    case filters
-  }
+	private(set) var query: String
+	private(set) var filters: String?
+	
+	enum CodingKeys: String, CodingKey {
+		case query = "q"
+		case filters
+	}
 }
 
 extension ArticleSearchRequest: Requestable {
-  static var path: String = "articlesearch.json"
-
-  typealias Response = GenericResponse<ArticleSearchResponse>
-  struct ArticleSearchResponse: Decodable {
-    let articles: [Article]
-
-    enum CodingKeys: String, CodingKey {
-      case articles = "docs"
-    }
-  }
+	static var path: String = "articlesearch.json"
+	
+	typealias Response = GenericResponse<ArticleSearchResponse>
+	struct ArticleSearchResponse: Decodable {
+		let articles: [Article]
+		
+		enum CodingKeys: String, CodingKey {
+			case articles = "docs"
+		}
+	}
 }
 
 struct Article: Decodable, Identifiable, Equatable {
-  let abstract: String
-  let webURL: String
-  let leadParagraph: String
-  let pubDate: Date
-  let sectionName: String?
-  let id: String
-
-  enum CodingKeys: String, CodingKey {
-    case abstract
-    case webURL = "web_url"
-    case leadParagraph = "lead_paragraph"
-    case pubDate = "pub_date"
-    case sectionName = "section_name"
-    case id = "_id"
-  }
+	let abstract: String
+	let webURL: String
+	let leadParagraph: String
+	let pubDate: Date
+	let sectionName: String?
+	let id: String
+	
+	enum CodingKeys: String, CodingKey {
+		case abstract
+		case webURL = "web_url"
+		case leadParagraph = "lead_paragraph"
+		case pubDate = "pub_date"
+		case sectionName = "section_name"
+		case id = "_id"
+	}
 }

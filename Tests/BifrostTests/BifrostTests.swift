@@ -25,38 +25,38 @@
 import XCTest
 @testable import Bifrost
 
-@available(iOS 15, *)
 final class BifrostTests: XCTestCase {
-  func testNewYorkTimesCallback() {
-    let expectation = XCTestExpectation()
+	func testNewYorkTimes() {
+		let expectation = XCTestExpectation()
+		
+		NewYorkTimesAPI.response(for: ArticleSearchRequest(query: "Test")) { result in
+			switch result {
+			case let .success(articles):
+				XCTAssertNotNil(articles)
+			case let .failure(error):
+				XCTAssertNotNil(error)
+			}
+			
+			expectation.fulfill()
+		}
+		
+		wait(for: [expectation], timeout: 10)
+	}
+	
+	func testSunsetSunrise() {
+		let expectation = XCTestExpectation()
 
-    NewYorkTimesAPI.response(for: ArticleSearchRequest(query: "Test")) { result in
-      switch result {
-      case let .success(articles):
-        XCTAssertNotNil(articles)
-      case let .failure(error):
-        XCTAssertNotNil(error)
-      }
+		SunriseSunsetAPI.response(for: Request(latitude: "36.7201600", longitude: "-4.4203400")) { result in
+			switch result {
+			case let .success(response):
+				XCTAssertNotNil(response)
+			case let .failure(error):
+				XCTAssertNotNil(error)
+			}
 
-      expectation.fulfill()
-    }
+			expectation.fulfill()
+		}
 
-    wait(for: [expectation], timeout: 10)
-  }
-
-  func testNewYorkTimes() async throws {
-    let response = try await NewYorkTimesAPI.response(for: ArticleSearchRequest(query: "Test"))
-
-    print(response)
-
-    XCTAssertNotNil(response)
-  }
-
-  func testSunsetSunrise() async throws {
-    let response = try await SunriseSunsetAPI.response(for: Request(latitude: "36.7201600", longitude: "-4.4203400"))
-
-    print(response)
-
-    XCTAssertNotNil(response)
-  }
+		wait(for: [expectation], timeout: 10)
+	}
 }

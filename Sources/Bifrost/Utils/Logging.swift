@@ -25,5 +25,5 @@
 import OSLog
 
 extension Logger {
-  static let bifrost = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Bifrost")
+	static let bifrost = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Bifrost")
 }
