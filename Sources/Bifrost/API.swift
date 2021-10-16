@@ -57,7 +57,7 @@ public extension API {
 }
 
 public extension API {
-	/// Makes a specific  request to the target API.
+	/// Makes a specific request to the target API.
 	/// - Parameters:
 	///   - request: The request to be used.
 	///   - callback: The callback with the request's `Result`.
@@ -143,6 +143,21 @@ public extension API {
 		
 		task.resume()
 	}
+}
+
+@available(iOS 15, *)
+public extension API {
+    /// Makes a specific request to the target API asynchronously.
+    /// - Parameters:
+    ///   - request: The request to be used.
+    /// - Returns: A strongly-typed response from the API.
+    static func response<Request>(for request: Request) async throws -> Request.Response
+    where Request: Requestable
+    {
+        try await withCheckedThrowingContinuation { continuation in
+            response(for: request, callback: continuation.resume(with:))
+        }
+    }
 }
 
 private extension API {

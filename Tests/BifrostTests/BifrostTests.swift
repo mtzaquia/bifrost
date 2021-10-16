@@ -42,6 +42,12 @@ final class BifrostTests: XCTestCase {
 		
 		wait(for: [expectation], timeout: 10)
 	}
+
+    @available(iOS 15, *)
+    func testNewYorkTimesAsync() async throws {
+        let articles = try await NewYorkTimesAPI.response(for: ArticleSearchRequest(query: "Test"))
+        XCTAssertNotNil(articles)
+    }
 	
 	func testSunsetSunrise() {
 		let expectation = XCTestExpectation()
