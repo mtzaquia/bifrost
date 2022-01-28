@@ -77,7 +77,14 @@ public extension API {
 			return
 		}
 		
-		guard let initialURL = URL(string: baseURL)?.appendingPathComponent(requestPath) else {
+		let initialURL: URL?
+		if requestPath.isEmpty {
+			initialURL = URL(string: baseURL)
+		} else {
+			initialURL = URL(string: baseURL)?.appendingPathComponent(requestPath)
+		}
+
+		guard let initialURL = initialURL else {
 			callback(.failure(URLError(.badURL)))
 			return
 		}
