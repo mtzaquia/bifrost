@@ -60,10 +60,14 @@ public extension API {
 	/// Makes a specific request to the target API.
 	/// - Parameters:
 	///   - request: The request to be used.
+    ///   - session: The session to the used for this request. Defaults to `.shared`.
 	///   - callback: The callback with the request's `Result`.
 	/// - Returns: A strongly-typed response from the API.
-	static func response<Request>(for request: Request, callback: @escaping (Result<Request.Response, Error>) -> Void) where Request: Requestable
-	{
+    static func response<Request>(
+        for request: Request,
+        session: URLSession = .shared,
+        callback: @escaping (Result<Request.Response, Error>) -> Void
+    ) where Request: Requestable {
 		var dictEncoder = DictionaryEncoder()
 		configureEncoder(&dictEncoder)
 		
@@ -123,7 +127,7 @@ public extension API {
 		
 		Logger.bifrost.debug("Header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
 		
-		let task = URLSession.shared.dataTask(with: urlRequest) { data, _, error in
+		let task = session.dataTask(with: urlRequest) { data, _, error in
 			if let error = error {
 				callback(.failure(error))
 				return
@@ -160,26 +164,23 @@ public extension API {
     /// Makes a specific request to the target API asynchronously.
     /// - Parameters:
     ///   - request: The request to be used.
+    ///   - session: The session to the used for this request. Defaults to `.shared`.
     /// - Returns: A strongly-typed response from the API.
-    static func response<Request>(for request: Request) async throws -> Request.Response
-    where Request: Requestable
-    {
+    static func response<Request>(
+        for request: Request,
+        session: URLSession = .shared
+    ) async throws -> Request.Response where Request: Requestable {
         try await withCheckedThrowingContinuation { continuation in
-            response(for: request, callback: continuation.resume(with:))
+            response(
+                for: request,
+                session: session,
+                callback: continuation.resume(with:)
+            )
         }
     }
 }
 
-private extension API {
-	static func requestPath(for initialPath: String, with parameters: [String: Any]) -> String {
-		var finalPath = initialPath
-		for (key, value) in parameters {
-			finalPath = finalPath.replacingOccurrences(of: "{\(key)}", with: "\(value)")
-		}
-		
-		return finalPath
-	}
-	
+private extension API {	
 	static func requestURL(for initialURL: URL, with parameters: [String: Any]) throws -> URL {
 		guard var urlComponents = URLComponents(url: initialURL, resolvingAgainstBaseURL: false) else {
 			throw URLError(.badURL)
