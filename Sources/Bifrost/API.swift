@@ -68,10 +68,9 @@ public extension API {
 		configureEncoder(&dictEncoder)
 		
 		let queryParameters: [String: Any]
-		let requestPath: String
+        let requestPath = request.path
 		do {
 			queryParameters = try request.queryParameters(dictEncoder)
-			requestPath = self.requestPath(for: Request.path, with: try dictEncoder.encode(request))
 		} catch {
 			callback(.failure(error))
 			return
@@ -141,7 +140,11 @@ public extension API {
 			configureJSONDecoder(&jsonDecoder)
 			
 			do {
-				callback(.success(try jsonDecoder.decode(Request.Response.self, from: data)))
+                if Request.Response.self == EmptyResponse.self {
+                    callback(.success(EmptyResponse() as! Request.Response))
+                } else {
+                    callback(.success(try jsonDecoder.decode(Request.Response.self, from: data)))
+                }
 			} catch {
 				callback(.failure(error))
 				return

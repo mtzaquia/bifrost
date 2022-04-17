@@ -56,7 +56,7 @@ struct ArticleSearchRequest {
 }
 
 extension ArticleSearchRequest: Requestable {
-	static var path: String = "articlesearch.json"
+    var path: String { "articlesearch.json" }
 	
 	typealias Response = GenericResponse<ArticleSearchResponse>
 	struct ArticleSearchResponse: Decodable {

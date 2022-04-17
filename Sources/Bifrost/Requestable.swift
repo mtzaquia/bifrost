@@ -32,15 +32,18 @@ public enum HTTPMethod: String {
 	case delete = "DELETE"
 }
 
+/// Use this type whenever the data response of your API is expected to be empty.
+public struct EmptyResponse: Decodable {}
+
 /// A protocol for a type that can make requests to an API.
 public protocol Requestable: Encodable {
 	/// The response type expected as a result from this request.
 	associatedtype Response: Decodable
 
-	/// The path for this request. This will be appended to the API's ``API/baseURL``. _i.e.:_ `"articleSearch.json"`.
-	///
-	/// Paths including parameter names within brackets (_i.e.:_ `/my-request/{id}`) will have the placeholders automatically replaced with a value matching the name, if available.
-	static var path: String { get }
+    /// The path for this request. This will be appended to the API's ``API/baseURL``. _i.e.:_ `"articleSearch.json"`.
+    ///
+    /// You may interpolate properties as needed in your path (_i.e.:_ `"/my-request/\(myId)"`).
+    var path: String { get }
 
 	/// The HTTP method to be used for this request. Defaults to ``HTTPMethod/get``.
 	static var method: HTTPMethod { get }

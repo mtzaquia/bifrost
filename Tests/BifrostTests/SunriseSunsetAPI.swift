@@ -55,7 +55,7 @@ struct Request {
 }
 
 extension Request: Requestable {
-	static var path: String = "json"
+    var path: String { "json" }
 
 	struct Response: Decodable {
 		let status: String
