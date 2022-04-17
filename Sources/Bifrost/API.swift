@@ -68,23 +68,11 @@ public extension API {
         session: URLSession = .shared,
         callback: @escaping (Result<Request.Response, Error>) -> Void
     ) where Request: Requestable {
-		var dictEncoder = DictionaryEncoder()
-		configureEncoder(&dictEncoder)
-		
-		let queryParameters: [String: Any]
-        let requestPath = request.path
-		do {
-			queryParameters = try request.queryParameters(dictEncoder)
-		} catch {
-			callback(.failure(error))
-			return
-		}
-		
 		let initialURL: URL?
-		if requestPath.isEmpty {
+		if request.path.isEmpty {
 			initialURL = URL(string: baseURL)
 		} else {
-			initialURL = URL(string: baseURL)?.appendingPathComponent(requestPath)
+			initialURL = URL(string: baseURL)?.appendingPathComponent(request.path)
 		}
 
 		guard let initialURL = initialURL else {
@@ -92,11 +80,15 @@ public extension API {
 			return
 		}
 		
-		let allQueryParameters = queryParameters
-			.merging(defaultQueryParameters, uniquingKeysWith: { (current, _) in current })
-		
+        var dictEncoder = DictionaryEncoder()
+        configureEncoder(&dictEncoder)
+        
 		let requestURL: URL
 		do {
+            let requestParameters = try request.queryParameters(dictEncoder)
+            let allQueryParameters = requestParameters
+                .merging(defaultQueryParameters, uniquingKeysWith: { (current, _) in current })
+            
 			requestURL = try self.requestURL(for: initialURL, with: allQueryParameters)
 		} catch {
 			callback(.failure(error))

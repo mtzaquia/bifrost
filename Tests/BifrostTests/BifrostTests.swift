@@ -26,13 +26,13 @@ import XCTest
 @testable import Bifrost
 
 final class BifrostTests: XCTestCase {
-	func testNewYorkTimes() {
+	func testData() {
 		let expectation = XCTestExpectation()
 		
-		NewYorkTimesAPI.response(for: ArticleSearchRequest(query: "Test")) { result in
+        DataAPI.response(for: DataRequest(drilldowns: "Nation", measures: "Population")) { result in
 			switch result {
-			case let .success(articles):
-				XCTAssertNotNil(articles)
+			case let .success(data):
+				XCTAssertNotNil(data)
 			case let .failure(error):
 				XCTAssertNotNil(error)
 			}
@@ -44,9 +44,9 @@ final class BifrostTests: XCTestCase {
 	}
 
     @available(iOS 15, *)
-    func testNewYorkTimesAsync() async throws {
-        let articles = try await NewYorkTimesAPI.response(for: ArticleSearchRequest(query: "Test"))
-        XCTAssertNotNil(articles)
+    func testDataAsync() async throws {
+        let data = try await DataAPI.response(for: DataRequest(drilldowns: "Nation", measures: "Population"))
+        XCTAssertNotNil(data)
     }
 	
 	func testSunsetSunrise() {
