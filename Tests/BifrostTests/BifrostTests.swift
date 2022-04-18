@@ -55,9 +55,11 @@ final class BifrostTests: XCTestCase {
 		SunriseSunsetAPI.response(for: Request(latitude: "36.7201600", longitude: "-4.4203400")) { result in
 			switch result {
 			case let .success(response):
-				XCTAssertNotNil(response)
+                    XCTAssertNotNil(response.results.sunrise)
+                    XCTAssertNotNil(response.results.sunset)
+                    XCTAssertNotNil(response.results.dayLength)
 			case let .failure(error):
-				XCTAssertNotNil(error)
+                    XCTAssertNotNil(error)
 			}
 
 			expectation.fulfill()

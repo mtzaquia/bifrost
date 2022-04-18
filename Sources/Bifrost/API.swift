@@ -68,14 +68,10 @@ public extension API {
         session: URLSession = .shared,
         callback: @escaping (Result<Request.Response, Error>) -> Void
     ) where Request: Requestable {
-        let initialURL: URL?
-        if request.path.isEmpty {
-            initialURL = URL(string: baseURL)
-        } else {
-            initialURL = URL(string: baseURL)?.appendingPathComponent(request.path)
-        }
-        
-        guard let initialURL = initialURL else {
+        guard let initialURL = request.path.isEmpty
+                ? URL(string: baseURL)
+                : URL(string: baseURL)?.appendingPathComponent(request.path)
+        else {
             callback(.failure(URLError(.badURL)))
             return
         }
