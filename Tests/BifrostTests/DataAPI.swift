@@ -27,15 +27,19 @@ import Bifrost
 
 // API Declaration
 
-enum DataAPI: API {
-    static let baseURL: URL = URL(string: "https://datausa.io/api/")!
-	static var defaultQueryParameters: [String : Any] = [
-        "year": "latest"
-	]
+struct DataAPI: API {
+    let baseURL: URL = URL(string: "https://datausa.io/api/")!
+    func defaultQueryParameters() -> [String : Any] {
+        [
+            "year": "latest"
+        ]
+    }
 	
-	static func configureJSONDecoder(_ decoder: inout JSONDecoder) {
-		decoder.dateDecodingStrategy = .iso8601
-	}
+    var jsonDecoder: JSONDecoder = {
+        let jd = JSONDecoder()
+        jd.dateDecodingStrategy = .iso8601
+        return jd
+    }()
 }
 
 // Requests, Models

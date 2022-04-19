@@ -25,6 +25,8 @@
 import Foundation
 
 public class DictionaryEncoder {
+    public init() {}
+    
 	private let encoder = JSONEncoder()
 	public var dateEncodingStrategy: JSONEncoder.DateEncodingStrategy {
 		set { encoder.dateEncodingStrategy = newValue }
@@ -46,7 +48,7 @@ public class DictionaryEncoder {
 		get { encoder.keyEncodingStrategy }
 	}
 	
-	func encode<T>(_ value: T) throws -> [String: Any] where T : Encodable {
+	func encode<T>(_ value: T) throws -> [String: Any] where T: Encodable {
 		try JSONSerialization.jsonObject(with: try encoder.encode(value),
 										 options: .allowFragments) as! [String: Any]
 	}

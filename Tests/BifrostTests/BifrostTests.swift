@@ -29,7 +29,7 @@ final class BifrostTests: XCTestCase {
 	func testData() {
 		let expectation = XCTestExpectation()
 		
-        DataAPI.response(for: DataRequest(drilldowns: "Nation", measures: "Population")) { result in
+        DataAPI().response(for: DataRequest(drilldowns: "Nation", measures: "Population")) { result in
 			switch result {
 			case let .success(data):
 				XCTAssertNotNil(data)
@@ -45,14 +45,14 @@ final class BifrostTests: XCTestCase {
 
     @available(iOS 15, *)
     func testDataAsync() async throws {
-        let data = try await DataAPI.response(for: DataRequest(drilldowns: "Nation", measures: "Population"))
+        let data = try await DataAPI().response(for: DataRequest(drilldowns: "Nation", measures: "Population"))
         XCTAssertNotNil(data)
     }
 	
 	func testSunsetSunrise() {
 		let expectation = XCTestExpectation()
 
-		SunriseSunsetAPI.response(for: Request(latitude: "36.7201600", longitude: "-4.4203400")) { result in
+		SunriseSunsetAPI().response(for: Request(latitude: "36.7201600", longitude: "-4.4203400")) { result in
 			switch result {
 			case let .success(response):
                     XCTAssertNotNil(response.results.sunrise)

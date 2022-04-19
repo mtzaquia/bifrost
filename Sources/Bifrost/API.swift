@@ -27,59 +27,64 @@ import OSLog
 
 public protocol API {
     /// The base URL from which requests will be made. _i.e.:_ https://api.myapp.com/
-    static var baseURL: URL { get }
+    var baseURL: URL { get }
+    
+    /// The session to the used for this API. The default implementation provides `.shared` as default.
+    var urlSession: URLSession { get }
     
     /// The default query parameters that should always be added to requests on this particular API.
-    static var defaultQueryParameters: [String: Any] { get }
+    func defaultQueryParameters() -> [String: Any]
     
     /// The default header fields that should always be added to requests on this particular API.
-    static var defaultHeaderFields: [String: String] { get }
-    
-    /// A function allowing you to customise the `DictionaryEncoder` instance that will encode your API request parameters.
-    /// - Parameter encoder: The encoder being used for building the request parameters.
-    static func configureEncoder(_ encoder: inout DictionaryEncoder)
-    
-    /// A function allowing you to customise the `JSONDecoder` instance that will decode your API responses.
-    /// - Parameter decoder: The decoder being used for processing the response.
-    static func configureJSONDecoder(_ decoder: inout JSONDecoder)
-    
-    /// A function allowing you to customise the `JSONEncoder` instance that will encode your API request body.
-    /// - Parameter encoder: The encoder being used for building the request body.
-    static func configureJSONEncoder(_ encoder: inout JSONEncoder)
-}
+    func defaultHeaderFields() -> [String: String]
 
-public extension API {
-    static var defaultQueryParameters: [String: Any] { [:] }
-    static var defaultHeaderFields: [String: String] { [:] }
-    static func configureEncoder(_ encoder: inout DictionaryEncoder) {}
-    static func configureJSONDecoder(_ decoder: inout JSONDecoder) {}
-    static func configureJSONEncoder(_ encoder: inout JSONEncoder) {}
-}
-
-public extension API {
+    /// The `DictionaryEncoder` instance that will encode your API request parameters.
+    var dictionaryEncoder: DictionaryEncoder { get }
+    
+    /// The `JSONEncoder` instance that will encode your API request body.
+    var jsonEncoder: JSONEncoder { get }
+    
+    /// The `JSONDecoder` instance that will decode your API responses.
+    var jsonDecoder: JSONDecoder { get }
+    
     /// Makes a specific request to the target API.
+    /// This function has a default implementation which can be overridden, mostly for mocking purposes.
     /// - Parameters:
     ///   - request: The request to be used.
-    ///   - session: The session to the used for this request. Defaults to `.shared`.
+    ///   - session:
     ///   - callback: The callback with the request's `Result`.
     /// - Returns: A strongly-typed response from the API.
-    static func response<Request>(
+    func response<Request>(
         for request: Request,
-        session: URLSession = .shared,
+        callback: @escaping (Result<Request.Response, Error>) -> Void
+    ) where Request: Requestable
+}
+
+public extension API {
+    var urlSession: URLSession { .shared }
+    
+    var dictionaryEncoder: DictionaryEncoder { DictionaryEncoder() }
+    var jsonEncoder: JSONEncoder { JSONEncoder() }
+    var jsonDecoder: JSONDecoder { JSONDecoder() }
+    
+    func defaultQueryParameters() -> [String: Any] { [:] }
+    func defaultHeaderFields() -> [String: String] { [:] }
+}
+
+public extension API {
+    func response<Request>(
+        for request: Request,
         callback: @escaping (Result<Request.Response, Error>) -> Void
     ) where Request: Requestable {
         let initialURL = request.path.isEmpty
         ? baseURL
         : baseURL.appendingPathComponent(request.path)
         
-        var dictEncoder = DictionaryEncoder()
-        configureEncoder(&dictEncoder)
-        
         let requestURL: URL
         do {
-            let requestParameters = try request.queryParameters(dictEncoder)
+            let requestParameters = try request.queryParameters(dictionaryEncoder)
             let allQueryParameters = requestParameters
-                .merging(defaultQueryParameters, uniquingKeysWith: { (current, _) in current })
+                .merging(defaultQueryParameters(), uniquingKeysWith: { (current, _) in current })
             
             requestURL = try self.requestURL(for: initialURL, with: allQueryParameters)
         } catch {
@@ -90,13 +95,10 @@ public extension API {
         Logger.bifrost.info("\(request.method.rawValue) request: \(requestURL.absoluteString)")
         
         let allHeaderFields = request.defaultHeaderFields
-            .merging(defaultHeaderFields, uniquingKeysWith: { (current, _) in current })
+            .merging(defaultHeaderFields(), uniquingKeysWith: { (current, _) in current })
         
         var urlRequest = URLRequest(url: requestURL)
         urlRequest.httpMethod = request.method.rawValue
-        
-        var jsonEncoder = JSONEncoder()
-        configureJSONEncoder(&jsonEncoder)
         
         do {
             urlRequest.httpBody = try request.bodyParameters(jsonEncoder)
@@ -111,7 +113,7 @@ public extension API {
         
         Logger.bifrost.debug("Header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
         
-        let task = session.dataTask(with: urlRequest) { data, _, error in
+        let task = urlSession.dataTask(with: urlRequest) { data, _, error in
             if let error = error {
                 callback(.failure(error))
                 return
@@ -123,9 +125,6 @@ public extension API {
             }
             
             Logger.bifrost.debug("\(String(data: data, encoding: .utf8) ?? "Unable to read response as JSON")")
-            
-            var jsonDecoder = JSONDecoder()
-            configureJSONDecoder(&jsonDecoder)
             
             do {
                 if Request.Response.self == EmptyResponse.self {
@@ -150,14 +149,12 @@ public extension API {
     ///   - request: The request to be used.
     ///   - session: The session to the used for this request. Defaults to `.shared`.
     /// - Returns: A strongly-typed response from the API.
-    static func response<Request>(
-        for request: Request,
-        session: URLSession = .shared
+    func response<Request>(
+        for request: Request
     ) async throws -> Request.Response where Request: Requestable {
         try await withCheckedThrowingContinuation { continuation in
             response(
                 for: request,
-                session: session,
                 callback: continuation.resume(with:)
             )
         }
@@ -165,7 +162,7 @@ public extension API {
 }
 
 private extension API {	
-    static func requestURL(for initialURL: URL, with parameters: [String: Any]) throws -> URL {
+    func requestURL(for initialURL: URL, with parameters: [String: Any]) throws -> URL {
         guard var urlComponents = URLComponents(url: initialURL, resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
         }

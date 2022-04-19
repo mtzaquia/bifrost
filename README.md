@@ -8,7 +8,7 @@ Bifrost is available via Swift Package Manager.
 
 ```swift
 dependencies: [
-  .package(url: "https://github.com/mtzaquia/bifrost.git", .branch("main")),
+  .package(url: "https://github.com/mtzaquia/bifrost.git", .upToNextMajor(from: "0.0.9")),
 ],
 ```
 
@@ -19,23 +19,28 @@ dependencies: [
 Simply declare an entity conforming to `API` to start, then fulfill the required protocol conformances:
 
 ```swift
-enum MyAPI: API {
-  static let baseURL: String = "https://api.myapi.com/v2/"
+struct MyAPI: API {
+  let baseURL: URL = URL(string: "https://api.myapi.com/v2/")!
+  // ...
 }
 ``` 
 
-You can define default parameters and headers that will apply to all requests. You can also configure the decoder for your specific scenario.
+You can define default parameters and headers that will apply to all requests. You can also configure the decoder for your specific use-case.
 
 ```swift
-enum MyAPI: API {
+struct MyAPI: API {
   // ...
-  static var defaultParameters: [String : Any] = [
-    "api-key": "<my secret key>"
-  ]
-
-  static func configureDecoder(_ decoder: inout JSONDecoder) {
-    decoder.dateDecodingStrategy = .iso8601
+  func defaultParameters() -> [String : Any] {
+    [
+      "api-key": "<my secret key>"
+    ]
   }
+
+  var jsonDecoder: JSONDecoder = {
+    let jd = JSONDecoder()
+    jd.dateDecodingStrategy = .iso8601
+    return jd
+  }()
 }
 ```
 
@@ -72,6 +77,23 @@ Finally, you are ready to submit a request! Concurrency allows you to easily inl
 // ...
 let response = try await MyAPI.response(for: MyRequest(name: "My fancy name"))
 print(response.results) // Our response is already a Swift type! More specifically, an instance of `MyRequest.Response`.
+```
+
+### Mocking
+
+You may provide your own implementation of the `response(for:callback:)` function for mocking purposes:
+
+```swift
+struct MockedAPI: API {
+  let baseURL: URL = URL(string: "foo://bar")!
+    
+  func response<Request>(
+      for request: Request,
+      callback: @escaping (Result<Request.Response, Error>) -> Void
+  ) where Request : Requestable {
+      // my mocked implementation...
+  }
+}
 ```
 
 ## License

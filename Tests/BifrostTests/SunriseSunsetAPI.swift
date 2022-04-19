@@ -25,17 +25,21 @@
 import Foundation
 import Bifrost
 
-enum SunriseSunsetAPI: API {
-    static let baseURL: URL = URL(string: "https://api.sunrise-sunset.org/")!
+struct SunriseSunsetAPI: API {
+    let baseURL: URL = URL(string: "https://api.sunrise-sunset.org/")!
 
-	static func configureEncoder(_ encoder: inout DictionaryEncoder) {
-		encoder.keyEncodingStrategy = .convertToSnakeCase
-	}
-
-	static func configureJSONDecoder(_ decoder: inout JSONDecoder) {
-		decoder.dateDecodingStrategy = .iso8601
-		decoder.keyDecodingStrategy = .convertFromSnakeCase
-	}
+    var dictionaryEncoder: DictionaryEncoder = {
+        let de = DictionaryEncoder()
+        de.keyEncodingStrategy = .convertToSnakeCase
+        return de
+    }()
+    
+    var jsonDecoder: JSONDecoder = {
+        let jd = JSONDecoder()
+        jd.dateDecodingStrategy = .iso8601
+        jd.keyDecodingStrategy = .convertFromSnakeCase
+        return jd
+    }()
 }
 
 // Requests, Models
