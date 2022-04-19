@@ -28,7 +28,7 @@ import Bifrost
 // API Declaration
 
 enum DataAPI: API {
-	static let baseURL: String = "https://datausa.io/api/"
+    static let baseURL: URL = URL(string: "https://datausa.io/api/")!
 	static var defaultQueryParameters: [String : Any] = [
         "year": "latest"
 	]

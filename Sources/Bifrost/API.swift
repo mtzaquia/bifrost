@@ -27,7 +27,7 @@ import OSLog
 
 public protocol API {
     /// The base URL from which requests will be made. _i.e.:_ https://api.myapp.com/
-    static var baseURL: String { get }
+    static var baseURL: URL { get }
     
     /// The default query parameters that should always be added to requests on this particular API.
     static var defaultQueryParameters: [String: Any] { get }
@@ -68,13 +68,9 @@ public extension API {
         session: URLSession = .shared,
         callback: @escaping (Result<Request.Response, Error>) -> Void
     ) where Request: Requestable {
-        guard let initialURL = request.path.isEmpty
-                ? URL(string: baseURL)
-                : URL(string: baseURL)?.appendingPathComponent(request.path)
-        else {
-            callback(.failure(URLError(.badURL)))
-            return
-        }
+        let initialURL = request.path.isEmpty
+        ? baseURL
+        : baseURL.appendingPathComponent(request.path)
         
         var dictEncoder = DictionaryEncoder()
         configureEncoder(&dictEncoder)

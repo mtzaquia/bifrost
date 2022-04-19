@@ -26,7 +26,7 @@ import Foundation
 import Bifrost
 
 enum SunriseSunsetAPI: API {
-	static var baseURL: String = "https://api.sunrise-sunset.org/"
+    static let baseURL: URL = URL(string: "https://api.sunrise-sunset.org/")!
 
 	static func configureEncoder(_ encoder: inout DictionaryEncoder) {
 		encoder.keyEncodingStrategy = .convertToSnakeCase
