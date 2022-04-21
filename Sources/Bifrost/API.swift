@@ -25,6 +25,10 @@
 import Foundation
 import OSLog
 
+private let defaultJSONDecoder = JSONDecoder()
+private let defaultJSONEncoder = JSONEncoder()
+private let defaultDictionaryEncoder = DictionaryEncoder()
+
 public protocol API {
     /// The base URL from which requests will be made. _i.e.:_ https://api.myapp.com/
     var baseURL: URL { get }
@@ -63,9 +67,9 @@ public protocol API {
 public extension API {
     var urlSession: URLSession { .shared }
     
-    var dictionaryEncoder: DictionaryEncoder { DictionaryEncoder() }
-    var jsonEncoder: JSONEncoder { JSONEncoder() }
-    var jsonDecoder: JSONDecoder { JSONDecoder() }
+    var dictionaryEncoder: DictionaryEncoder { defaultDictionaryEncoder }
+    var jsonEncoder: JSONEncoder { defaultJSONEncoder }
+    var jsonDecoder: JSONDecoder { defaultJSONDecoder }
     
     func defaultQueryParameters() -> [String: Any] { [:] }
     func defaultHeaderFields() -> [String: String] { [:] }
@@ -161,7 +165,7 @@ public extension API {
     }
 }
 
-private extension API {	
+private extension API {
     func requestURL(for initialURL: URL, with parameters: [String: Any]) throws -> URL {
         guard var urlComponents = URLComponents(url: initialURL, resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
