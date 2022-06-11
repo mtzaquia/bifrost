@@ -23,6 +23,7 @@
 //
 
 import Foundation
+import Combine
 import OSLog
 
 private let defaultJSONDecoder = JSONDecoder()
@@ -41,7 +42,7 @@ public protocol API {
     
     /// The default header fields that should always be added to requests on this particular API.
     func defaultHeaderFields() -> [String: String]
-
+    
     /// The `DictionaryEncoder` instance that will encode your API request parameters.
     var dictionaryEncoder: DictionaryEncoder { get }
     
@@ -55,7 +56,6 @@ public protocol API {
     /// This function has a default implementation which can be overridden, mostly for mocking purposes.
     /// - Parameters:
     ///   - request: The request to be used.
-    ///   - session:
     ///   - callback: The callback with the request's `Result`.
     /// - Returns: A strongly-typed response from the API.
     func response<Request>(
@@ -146,12 +146,31 @@ public extension API {
     }
 }
 
+public extension API {
+    /// Returns a publisher for a given request.
+    /// - Parameters:
+    ///   - request: The request to be used.
+    /// - Returns: A strongly-typed response from the API.
+    func publisher<Request>(
+        for request: Request
+    ) -> AnyPublisher<Request.Response, Error> where Request: Requestable {
+        Deferred {
+            Future { promise in
+                self.response(
+                    for: request,
+                    callback: promise
+                )
+            }
+        }
+        .eraseToAnyPublisher()
+    }
+}
+
 @available(iOS 15, *)
 public extension API {
     /// Makes a specific request to the target API asynchronously.
     /// - Parameters:
     ///   - request: The request to be used.
-    ///   - session: The session to the used for this request. Defaults to `.shared`.
     /// - Returns: A strongly-typed response from the API.
     func response<Request>(
         for request: Request
