@@ -24,6 +24,10 @@
 
 import OSLog
 
+public enum BifrostLogging {
+    public static var isDebugLoggingEnabled = false
+}
+
 extension Logger {
 	static let bifrost = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Bifrost")
 }

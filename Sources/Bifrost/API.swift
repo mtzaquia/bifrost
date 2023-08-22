@@ -112,7 +112,9 @@ public extension API {
             if let body = try request.bodyParameters(jsonEncoder) {
                 urlRequest.httpBody = body
 
-                Logger.bifrost.debug("Body: \(String(data: body, encoding: .utf8) ?? "<Unreadable>"))")
+                if BifrostLogging.isDebugLoggingEnabled {
+                    Logger.bifrost.debug("Body: \(String(data: body, encoding: .utf8) ?? "<Unreadable>"))")
+                }
             }
         } catch {
             callback(.failure(error))
@@ -123,8 +125,10 @@ public extension API {
             urlRequest.setValue(value, forHTTPHeaderField: field)
         }
         
-        Logger.bifrost.debug("Header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
-        
+        if BifrostLogging.isDebugLoggingEnabled {
+            Logger.bifrost.debug("Header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
+        }
+
         let task = urlSession.dataTask(with: urlRequest) { data, _, error in
             if let error = error {
                 callback(.failure(error))
@@ -136,7 +140,9 @@ public extension API {
                 return
             }
             
-            Logger.bifrost.debug("Response: \(String(data: data, encoding: .utf8) ?? "<Unreadable>")")
+            if BifrostLogging.isDebugLoggingEnabled {
+                Logger.bifrost.debug("Response: \(String(data: data, encoding: .utf8) ?? "<Unreadable>")")
+            }
 
             do {
                 if Request.Response.self == EmptyResponse.self {
