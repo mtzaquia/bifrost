@@ -56,10 +56,12 @@ public protocol API {
     /// This function has a default implementation which can be overridden, mostly for mocking purposes.
     /// - Parameters:
     ///   - request: The request to be used.
+    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
     ///   - callback: The callback with the request's `Result`.
     /// - Returns: A strongly-typed response from the API.
     func response<Request>(
         for request: Request,
+        additionalHeaderFields: [String: String],
         callback: @escaping (Result<Request.Response, Error>) -> Void
     ) where Request: Requestable
 }
@@ -78,6 +80,7 @@ public extension API {
 public extension API {
     func response<Request>(
         for request: Request,
+        additionalHeaderFields: [String: String] = [:],
         callback: @escaping (Result<Request.Response, Error>) -> Void
     ) where Request: Requestable {
         let initialURL = request.path.isEmpty
@@ -98,9 +101,10 @@ public extension API {
         
         Logger.bifrost.info("\(request.method.rawValue) request: \(requestURL.absoluteString)")
         
-        let allHeaderFields = request.defaultHeaderFields
-            .merging(defaultHeaderFields(), uniquingKeysWith: { (current, _) in current })
-        
+        let allHeaderFields = defaultHeaderFields()
+            .merging(request.defaultHeaderFields, uniquingKeysWith: { (_, new) in new })
+            .merging(additionalHeaderFields, uniquingKeysWith: { (_, new) in new })
+
         var urlRequest = URLRequest(url: requestURL)
         urlRequest.httpMethod = request.method.rawValue
         
@@ -150,14 +154,17 @@ public extension API {
     /// Returns a publisher for a given request.
     /// - Parameters:
     ///   - request: The request to be used.
+    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
     /// - Returns: A strongly-typed response from the API.
     func publisher<Request>(
-        for request: Request
+        for request: Request,
+        additionalHeaderFields: [String: String] = [:]
     ) -> AnyPublisher<Request.Response, Error> where Request: Requestable {
         Deferred {
             Future { promise in
                 self.response(
                     for: request,
+                    additionalHeaderFields: additionalHeaderFields,
                     callback: promise
                 )
             }
@@ -171,13 +178,16 @@ public extension API {
     /// Makes a specific request to the target API asynchronously.
     /// - Parameters:
     ///   - request: The request to be used.
+    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
     /// - Returns: A strongly-typed response from the API.
     func response<Request>(
-        for request: Request
+        for request: Request,
+        additionalHeaderFields: [String: String] = [:]
     ) async throws -> Request.Response where Request: Requestable {
         try await withCheckedThrowingContinuation { continuation in
             response(
                 for: request,
+                additionalHeaderFields: additionalHeaderFields,
                 callback: continuation.resume(with:)
             )
         }

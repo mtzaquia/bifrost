@@ -69,6 +69,9 @@ extension MyRequest: Requestable {
 }
 ``` 
 
+> **Note**
+> If you expect an empty response, you can use the built-in `EmptyResponse` type.
+
 ### Making the call
 
 Finally, you are ready to submit a request! Concurrency allows you to easily inline your call: 
@@ -89,6 +92,7 @@ struct MockedAPI: API {
     
   func response<Request>(
       for request: Request,
+      additionalHeaderFields: [String: String],
       callback: @escaping (Result<Request.Response, Error>) -> Void
   ) where Request : Requestable {
       // my mocked implementation...
