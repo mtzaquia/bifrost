@@ -109,7 +109,11 @@ public extension API {
         urlRequest.httpMethod = request.method.rawValue
         
         do {
-            urlRequest.httpBody = try request.bodyParameters(jsonEncoder)
+            if let body = try request.bodyParameters(jsonEncoder) {
+                urlRequest.httpBody = body
+
+                Logger.bifrost.debug("Body: \(String(data: body, encoding: .utf8) ?? "<Unreadable>"))")
+            }
         } catch {
             callback(.failure(error))
             return
@@ -132,8 +136,8 @@ public extension API {
                 return
             }
             
-            Logger.bifrost.debug("\(String(data: data, encoding: .utf8) ?? "Unable to read response as JSON")")
-            
+            Logger.bifrost.debug("Response: \(String(data: data, encoding: .utf8) ?? "<Unreadable>")")
+
             do {
                 if Request.Response.self == EmptyResponse.self {
                     callback(.success(EmptyResponse() as! Request.Response))
