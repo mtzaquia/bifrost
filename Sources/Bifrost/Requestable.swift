@@ -1,6 +1,4 @@
 //
-//  Requestable.swift
-//
 //  Copyright (c) 2021 @mtzaquia
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -68,6 +66,15 @@ public protocol Requestable: Encodable {
     /// - Parameter encoder: The JSON encoder that should be used for building the result.
     /// - Returns: The HTTP body to be embeded with the request.
     func bodyParameters(_ encoder: JSONEncoder) throws -> Data?
+
+    /// A function providing a custom error for a given status code. 
+    ///
+    /// By default, ``BifrostError/unsuccessfulStatusCode(_:message:)`` is
+    /// returned when a response's status code is not within the 200-299 range.
+    ///
+    /// - Parameter statusCode: The status code from the response.
+    /// - Returns: The error to be thrown by the request.
+    func error(for statusCode: Int) -> BifrostError?
 }
 
 public extension Requestable {
@@ -83,10 +90,14 @@ public extension Requestable {
     }
     
     func bodyParameters(_ encoder: JSONEncoder) throws -> Data? {
-        if method == .post {
+        if [HTTPMethod.post, .put].contains(method) {
             return try encoder.encode(self)
         } else {
             return nil
         }
+    }
+
+    func error(for statusCode: Int) -> BifrostError? {
+        BifrostError.unsuccessfulStatusCode(statusCode)
     }
 }

@@ -1,6 +1,4 @@
 //
-//  API.swift
-//
 //  Copyright (c) 2021 @mtzaquia
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -129,12 +127,20 @@ public extension API {
             Logger.bifrost.debug("Header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
         }
 
-        let task = urlSession.dataTask(with: urlRequest) { data, _, error in
+        let task = urlSession.dataTask(with: urlRequest) { data, response, error in
             if let error = error {
                 callback(.failure(error))
                 return
             }
-            
+
+            if let statusCode = (response as? HTTPURLResponse)?.statusCode,
+               !(200..<300).contains(statusCode),
+               let error = request.error(for: statusCode)
+            {
+                callback(.failure(error))
+                return
+            }
+
             guard let data = data else {
                 callback(.failure(URLError(.cannotDecodeRawData)))
                 return

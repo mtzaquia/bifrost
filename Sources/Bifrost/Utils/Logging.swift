@@ -1,6 +1,4 @@
 //
-//  Logging.swift
-//
 //  Copyright (c) 2021 @mtzaquia
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2021 @mtzaquia
+//  Copyright (c) 2024 @mtzaquia
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -22,34 +22,19 @@
 
 import Foundation
 
-public class DictionaryEncoder {
-    public init() {}
-    
-	private let encoder = JSONEncoder()
-	public var dateEncodingStrategy: JSONEncoder.DateEncodingStrategy {
-		set { encoder.dateEncodingStrategy = newValue }
-		get { encoder.dateEncodingStrategy }
-	}
-	
-	public var dataEncodingStrategy: JSONEncoder.DataEncodingStrategy {
-		set { encoder.dataEncodingStrategy = newValue }
-		get { encoder.dataEncodingStrategy }
-	}
-	
-	public var nonConformingFloatEncodingStrategy: JSONEncoder.NonConformingFloatEncodingStrategy {
-		set { encoder.nonConformingFloatEncodingStrategy = newValue }
-		get { encoder.nonConformingFloatEncodingStrategy }
-	}
-	
-	public var keyEncodingStrategy: JSONEncoder.KeyEncodingStrategy {
-		set { encoder.keyEncodingStrategy = newValue }
-		get { encoder.keyEncodingStrategy }
-	}
-	
-	func encode<T>(_ value: T) throws -> [String: Any] where T: Encodable {
-        try JSONSerialization.jsonObject(
-            with: try encoder.encode(value),
-            options: .allowFragments
-        ) as! [String: Any]
-	}
+/// A custom type for generic errors with status code or wrapping underlying errors.
+public enum BifrostError: LocalizedError {
+    /// A request returned a response with a non-success (200-299) status code.
+    case unsuccessfulStatusCode(_: Int)
+    /// A request returned an error that has an underlying error.
+    case wrapping(Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsuccessfulStatusCode(let statusCode):
+            return "\(statusCode): An error ocurred."
+        case .wrapping(let error):
+            return error.localizedDescription
+        }
+    }
 }
