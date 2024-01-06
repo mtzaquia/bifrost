@@ -8,7 +8,7 @@ Bifrost is available via Swift Package Manager.
 
 ```swift
 dependencies: [
-  .package(url: "https://github.com/mtzaquia/bifrost.git", .upToNextMajor(from: "0.0.9")),
+  .package(url: "https://github.com/mtzaquia/bifrost.git", .upToNextMajor(from: "1.0.0")),
 ],
 ```
 
@@ -47,7 +47,7 @@ struct MyAPI: API {
 ### Requests
 
 For each request, create a type with its supported parameters. Make sure this type conforms to `Requestable`. 
-You can also provide default header fields for a specific request, if needed, and choose the HTTP method for that given request. 
+You can also provide default header fields for a specific request if needed, and you can choose the HTTP method for that request. 
 
 ```swift
 struct MyRequest {
@@ -70,11 +70,11 @@ extension MyRequest: Requestable {
 ``` 
 
 > **Note**
-> If you expect an empty response, you can use the built-in `EmptyResponse` type.
+> If you expect an empty response, the built-in `EmptyResponse` type is avaiable for convenience.
 
 ### Making the call
 
-Finally, you are ready to submit a request! Concurrency allows you to easily inline your call: 
+Finally, you are ready to submit a request! Concurrency allows you to inline your call easily: 
 
 ```swift
 // ...
