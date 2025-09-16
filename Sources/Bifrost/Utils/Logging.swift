@@ -23,7 +23,7 @@
 import OSLog
 
 public enum BifrostLogging {
-    public static var isDebugLoggingEnabled = false
+    @MainActor public static var isDebugLoggingEnabled = false
 }
 
 extension Logger {

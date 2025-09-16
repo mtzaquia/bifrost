@@ -25,10 +25,14 @@
 import XCTest
 @testable import Bifrost
 
+@MainActor
 final class BifrostTests: XCTestCase {
     override class func setUp() {
         super.setUp()
-        BifrostLogging.isDebugLoggingEnabled = true
+
+        MainActor.assumeIsolated {
+            BifrostLogging.isDebugLoggingEnabled = true
+        }
     }
 
     func testDataAsync() async throws {

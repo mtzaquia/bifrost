@@ -98,6 +98,8 @@ public extension API {
         request: Request,
         additionalHeaderFields: [String: String]
     ) async throws -> Request.Response where Request: Requestable {
+        let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
+
         let requestURL = try buildURL(for: request)
 
         Logger.bifrost.info("❄ \(request.method.rawValue) \(requestURL.absoluteString)")
@@ -105,7 +107,8 @@ public extension API {
         let requestForTask = try buildURLRequest(
             for: request,
             at: requestURL,
-            additionalHeaderFields: additionalHeaderFields
+            additionalHeaderFields: additionalHeaderFields,
+            isDebugLoggingEnabled: isDebugLoggingEnabled
         )
 
         try Task.checkCancellation()
@@ -114,7 +117,7 @@ public extension API {
 
         try Task.checkCancellation()
 
-        if BifrostLogging.isDebugLoggingEnabled, let response = response as? HTTPURLResponse {
+        if isDebugLoggingEnabled, let response = response as? HTTPURLResponse {
             let code = response.statusCode
             let headers = response.allHeaderFields
             Logger.bifrost.debug("├ response: \(code)\n| \(headers.prettyPrinted(separator: "\n| "))")
@@ -152,7 +155,8 @@ private extension API {
     func buildURLRequest<Request>(
         for request: Request,
         at url: URL,
-        additionalHeaderFields: [String: String]
+        additionalHeaderFields: [String: String],
+        isDebugLoggingEnabled: Bool
     ) throws -> URLRequest where Request: Requestable {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue
@@ -160,7 +164,7 @@ private extension API {
         if let body = try request.bodyParameters(jsonEncoder) {
             urlRequest.httpBody = body
 
-            if BifrostLogging.isDebugLoggingEnabled {
+            if isDebugLoggingEnabled {
                 let bodyString = String(data: body, encoding: .utf8)
                 Logger.bifrost.debug("├ body: \(String(describing: bodyString))")
             }
@@ -174,7 +178,7 @@ private extension API {
             urlRequest.setValue(value, forHTTPHeaderField: field)
         }
 
-        if BifrostLogging.isDebugLoggingEnabled {
+        if isDebugLoggingEnabled {
             Logger.bifrost.debug("├ header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
         }
 
