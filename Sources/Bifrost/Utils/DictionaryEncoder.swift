@@ -22,7 +22,7 @@
 
 import Foundation
 
-public class DictionaryEncoder {
+public final class DictionaryEncoder {
     public init() {}
     
 	private let encoder = JSONEncoder()

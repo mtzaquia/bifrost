@@ -21,12 +21,10 @@
 //
 
 import Foundation
-import Combine
 import OSLog
 
 private let defaultJSONDecoder = JSONDecoder()
 private let defaultJSONEncoder = JSONEncoder()
-private let defaultDictionaryEncoder = DictionaryEncoder()
 
 public protocol API {
     /// The base URL from which requests will be made. _i.e.:_ https://api.myapp.com/
@@ -35,14 +33,14 @@ public protocol API {
     /// The session to the used for this API. The default implementation provides `.shared` as default.
     var urlSession: URLSession { get }
     
-    /// The default query parameters that should always be added to requests on this particular API.
-    func defaultQueryParameters() -> [String: Any]
-    
     /// The default header fields that should always be added to requests on this particular API.
-    func defaultHeaderFields() -> [String: String]
-    
-    /// The `DictionaryEncoder` instance that will encode your API request parameters.
-    var dictionaryEncoder: DictionaryEncoder { get }
+    ///
+    /// - Parameter body: The body for the request about to be submitted.
+    /// - Returns: The headers that are to be included with all the requests for this particular API.
+    func headerFields(body: Data?) -> [String: String]
+
+    /// The default query parameters that should always be added to requests on this particular API.
+    func queryParameters() -> [URLQueryItem]
     
     /// The `JSONEncoder` instance that will encode your API request body.
     var jsonEncoder: JSONEncoder { get }
@@ -51,181 +49,135 @@ public protocol API {
     var jsonDecoder: JSONDecoder { get }
     
     /// Makes a specific request to the target API.
-    /// This function has a default implementation which can be overridden, mostly for mocking purposes.
+    /// This function has a default implementation that can be overridden. This is useful for handling error codes in a bespoke way, or mocking responses.
+    ///
     /// - Parameters:
     ///   - request: The request to be used.
     ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
-    ///   - callback: The callback with the request's `Result`.
     /// - Returns: A strongly-typed response from the API.
     func response<Request>(
         for request: Request,
-        additionalHeaderFields: [String: String],
-        callback: @escaping (Result<Request.Response, Error>) -> Void
-    ) where Request: Requestable
+        additionalHeaderFields: [String: String]
+    ) async throws -> Request.Response where Request: Requestable
 }
+
+// MARK: - Defaults
 
 public extension API {
     var urlSession: URLSession { .shared }
-    
-    var dictionaryEncoder: DictionaryEncoder { defaultDictionaryEncoder }
+
+    func headerFields(body: Data?) -> [String: String] { [:] }
+    func queryParameters() -> [URLQueryItem] { [] }
+
     var jsonEncoder: JSONEncoder { defaultJSONEncoder }
     var jsonDecoder: JSONDecoder { defaultJSONDecoder }
-    
-    func defaultQueryParameters() -> [String: Any] { [:] }
-    func defaultHeaderFields() -> [String: String] { [:] }
 }
+
+// MARK: - Request
 
 public extension API {
     func response<Request>(
-        for request: Request,
-        additionalHeaderFields: [String: String] = [:],
-        callback: @escaping (Result<Request.Response, Error>) -> Void
-    ) where Request: Requestable {
-        let initialURL = request.path.isEmpty
-        ? baseURL
-        : baseURL.appendingPathComponent(request.path)
-        
-        let requestURL: URL
-        do {
-            let requestParameters = try request.queryParameters(dictionaryEncoder)
-            let allQueryParameters = requestParameters
-                .merging(defaultQueryParameters(), uniquingKeysWith: { (current, _) in current })
-            
-            requestURL = try self.requestURL(for: initialURL, with: allQueryParameters)
-        } catch {
-            callback(.failure(error))
-            return
-        }
-        
-        Logger.bifrost.info("\(request.method.rawValue) request: \(requestURL.absoluteString)")
-        
-        let allHeaderFields = defaultHeaderFields()
-            .merging(request.defaultHeaderFields, uniquingKeysWith: { (_, new) in new })
-            .merging(additionalHeaderFields, uniquingKeysWith: { (_, new) in new })
-
-        var urlRequest = URLRequest(url: requestURL)
-        urlRequest.httpMethod = request.method.rawValue
-        
-        do {
-            if let body = try request.bodyParameters(jsonEncoder) {
-                urlRequest.httpBody = body
-
-                if BifrostLogging.isDebugLoggingEnabled {
-                    Logger.bifrost.debug("Body: \(String(data: body, encoding: .utf8) ?? "<Unreadable>"))")
-                }
-            }
-        } catch {
-            callback(.failure(error))
-            return
-        }
-        
-        for (field, value) in allHeaderFields {
-            urlRequest.setValue(value, forHTTPHeaderField: field)
-        }
-        
-        if BifrostLogging.isDebugLoggingEnabled {
-            Logger.bifrost.debug("Header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
-        }
-
-        let task = urlSession.dataTask(with: urlRequest) { data, response, error in
-            if let error = error {
-                callback(.failure(error))
-                return
-            }
-
-            if let statusCode = (response as? HTTPURLResponse)?.statusCode,
-               !(200..<300).contains(statusCode),
-               let error = request.error(for: statusCode)
-            {
-                callback(.failure(error))
-                return
-            }
-
-            guard let data = data else {
-                callback(.failure(URLError(.cannotDecodeRawData)))
-                return
-            }
-            
-            if BifrostLogging.isDebugLoggingEnabled {
-                Logger.bifrost.debug("Response: \(String(data: data, encoding: .utf8) ?? "<Unreadable>")")
-            }
-
-            do {
-                if Request.Response.self == EmptyResponse.self {
-                    callback(.success(EmptyResponse() as! Request.Response))
-                } else {
-                    callback(.success(try jsonDecoder.decode(Request.Response.self, from: data)))
-                }
-            } catch {
-                callback(.failure(error))
-                return
-            }
-        }
-        
-        task.resume()
-    }
-}
-
-public extension API {
-    /// Returns a publisher for a given request.
-    /// - Parameters:
-    ///   - request: The request to be used.
-    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
-    /// - Returns: A strongly-typed response from the API.
-    func publisher<Request>(
-        for request: Request,
-        additionalHeaderFields: [String: String] = [:]
-    ) -> AnyPublisher<Request.Response, Error> where Request: Requestable {
-        Deferred {
-            Future { promise in
-                self.response(
-                    for: request,
-                    additionalHeaderFields: additionalHeaderFields,
-                    callback: promise
-                )
-            }
-        }
-        .eraseToAnyPublisher()
-    }
-}
-
-@available(iOS 15, *)
-public extension API {
-    /// Makes a specific request to the target API asynchronously.
-    /// - Parameters:
-    ///   - request: The request to be used.
-    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
-    /// - Returns: A strongly-typed response from the API.
-    func response<Request>(
-        for request: Request,
-        additionalHeaderFields: [String: String] = [:]
+        for request: Request
     ) async throws -> Request.Response where Request: Requestable {
-        try await withCheckedThrowingContinuation { continuation in
-            response(
-                for: request,
-                additionalHeaderFields: additionalHeaderFields,
-                callback: continuation.resume(with:)
-            )
+        try await response(for: request, additionalHeaderFields: [:])
+    }
+
+    func response<Request>(
+        for request: Request,
+        additionalHeaderFields: [String: String]
+    ) async throws -> Request.Response where Request: Requestable {
+        try await perform(request: request, additionalHeaderFields: additionalHeaderFields)
+    }
+
+    /// The default implementation for the API, which fetches data
+    /// - Parameters:
+    ///   - request: The request to be used.
+    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
+    /// - Returns: A strongly-typed response from the API.
+    func perform<Request>(
+        request: Request,
+        additionalHeaderFields: [String: String]
+    ) async throws -> Request.Response where Request: Requestable {
+        let requestURL = try buildURL(for: request)
+
+        Logger.bifrost.info("❄ \(request.method.rawValue) \(requestURL.absoluteString)")
+
+        let requestForTask = try buildURLRequest(
+            for: request,
+            at: requestURL,
+            additionalHeaderFields: additionalHeaderFields
+        )
+
+        try Task.checkCancellation()
+
+        let (data, response) = try await urlSession.data(for: requestForTask)
+
+        try Task.checkCancellation()
+
+        if BifrostLogging.isDebugLoggingEnabled, let response = response as? HTTPURLResponse {
+            let code = response.statusCode
+            let headers = response.allHeaderFields
+            Logger.bifrost.debug("├ response: \(code)\n| \(headers.prettyPrinted(separator: "\n| "))")
+        }
+
+        if let statusCode = (response as? HTTPURLResponse)?.statusCode, !(200..<400).contains(statusCode) {
+            throw BifrostError.unsuccessfulStatusCode(statusCode)
+        }
+
+        if Request.Response.self == EmptyResponse.self {
+            return EmptyResponse() as! Request.Response
+        } else {
+            return try jsonDecoder.decode(Request.Response.self, from: data)
         }
     }
 }
 
 private extension API {
-    func requestURL(for initialURL: URL, with parameters: [String: Any]) throws -> URL {
+    func buildURL<Request>(for request: Request) throws -> URL where Request: Requestable {
+        let initialURL = request.path.isEmpty ? baseURL : baseURL.appendingPathComponent(request.path)
+
         guard var urlComponents = URLComponents(url: initialURL, resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
         }
-        
-        var queryItems: [URLQueryItem] = urlComponents.queryItems ?? []
-        for (key, value) in parameters {
-            queryItems.append(URLQueryItem(name: key, value: "\(value)"))
-        }
-        
-        urlComponents.queryItems = queryItems
+
+        urlComponents.queryItems = (urlComponents.queryItems ?? []) + queryParameters() + (try request.queryParameters())
+
         guard let requestURL = urlComponents.url else {
             throw URLError(.badURL)
         }
-        
+
         return requestURL
+    }
+
+    func buildURLRequest<Request>(
+        for request: Request,
+        at url: URL,
+        additionalHeaderFields: [String: String]
+    ) throws -> URLRequest where Request: Requestable {
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = request.method.rawValue
+
+        if let body = try request.bodyParameters(jsonEncoder) {
+            urlRequest.httpBody = body
+
+            if BifrostLogging.isDebugLoggingEnabled {
+                let bodyString = String(data: body, encoding: .utf8)
+                Logger.bifrost.debug("├ body: \(String(describing: bodyString))")
+            }
+        }
+
+        let allHeaderFields = headerFields(body: urlRequest.httpBody)
+            .merging(request.headerFields, uniquingKeysWith: { (_, new) in new })
+            .merging(additionalHeaderFields, uniquingKeysWith: { (_, new) in new })
+
+        for (field, value) in allHeaderFields {
+            urlRequest.setValue(value, forHTTPHeaderField: field)
+        }
+
+        if BifrostLogging.isDebugLoggingEnabled {
+            Logger.bifrost.debug("├ header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
+        }
+
+        return urlRequest
     }
 }

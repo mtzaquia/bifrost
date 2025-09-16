@@ -29,7 +29,7 @@ import Bifrost
 
 struct DataAPI: API {
     let baseURL: URL = URL(string: "https://datausa.io/api/")!
-    func defaultQueryParameters() -> [String : Any] {
+    func queryParameters() -> [String : Any] {
         [
             "year": "latest"
         ]

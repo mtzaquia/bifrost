@@ -29,3 +29,11 @@ public enum BifrostLogging {
 extension Logger {
 	static let bifrost = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Bifrost")
 }
+
+extension Dictionary {
+    func prettyPrinted(separator: String = "\n") -> String {
+        self
+            .map { "\($0.key) = \($0.value)" }
+            .joined(separator: separator)
+    }
+}

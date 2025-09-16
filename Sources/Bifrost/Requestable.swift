@@ -22,6 +22,8 @@
 
 import Foundation
 
+private let defaultDictionaryEncoder = DictionaryEncoder()
+
 /// A type describing supported HTTP methods.
 public enum HTTPMethod: String {
     case get = "GET"
@@ -47,45 +49,40 @@ public protocol Requestable: Encodable {
     var method: HTTPMethod { get }
     
     /// The default header fields that should always be added on this request.
-    var defaultHeaderFields: [String: String] { get }
+    var headerFields: [String: String] { get }
     
     /// A function that provides the request parameters that should be part of the URL, as query parameters.
     ///
-    /// By default, all parameters are provided via query on ``HTTPMethod/get`` requests.
-    /// You can override this function and provide a custom implementation.
+    /// - Important: By default, all parameters are provided via query on ``HTTPMethod/get`` requests. You can override this function and provide a custom implementation.
     ///
-    /// - Parameter encoder: The dictionary encoder that should be used for building the result.
     /// - Returns: The query parameters to be appended to the request URL.
-    func queryParameters(_ encoder: DictionaryEncoder) throws -> [String: Any]
-    
+    func queryParameters() throws -> [URLQueryItem]
+
     /// A function that provides the request parameters that should be part of the HTTP body.
     ///
-    /// By default, all parameters are provided via HTTP body on ``HTTPMethod/post`` requests.
-    /// You can override this function and provide a custom implementation.
+    /// - Important: By default, all parameters are provided via HTTP body on ``HTTPMethod/post`` requests. You can override this function and provide a custom implementation.
     ///
     /// - Parameter encoder: The JSON encoder that should be used for building the result.
     /// - Returns: The HTTP body to be embeded with the request.
     func bodyParameters(_ encoder: JSONEncoder) throws -> Data?
-
-    /// A function providing a custom error for a given status code. 
-    ///
-    /// By default, ``BifrostError/unsuccessfulStatusCode(_:message:)`` is
-    /// returned when a response's status code is not within the 200-299 range.
-    ///
-    /// - Parameter statusCode: The status code from the response.
-    /// - Returns: The error to be thrown by the request.
-    func error(for statusCode: Int) -> BifrostError?
 }
 
 public extension Requestable {
     var method: HTTPMethod { .get }
-    var defaultHeaderFields: [String: String] { [:] }
+    var headerFields: [String: String] { [:] }
     
-    func queryParameters(_ encoder: DictionaryEncoder) throws -> [String: Any] {
+    func queryParameters() throws -> [URLQueryItem] {
         if method == .get {
-            return try encoder.encode(self)
+            let dict = try defaultDictionaryEncoder.encode(self)
+            return dict.flatMap { (key, value) -> [URLQueryItem] in
+                if let array = value as? [Any] {
+                    return array.map { URLQueryItem(name: key, value: "\($0)") }
+                } else {
+                    return [URLQueryItem(name: key, value: "\(value)")]
+                }
+            }
         } else {
-            return [:]
+            return []
         }
     }
     
@@ -95,9 +92,5 @@ public extension Requestable {
         } else {
             return nil
         }
-    }
-
-    func error(for statusCode: Int) -> BifrostError? {
-        BifrostError.unsuccessfulStatusCode(statusCode)
     }
 }

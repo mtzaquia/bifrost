@@ -26,15 +26,10 @@ import Foundation
 public enum BifrostError: LocalizedError {
     /// A request returned a response with a non-success (200-299) status code.
     case unsuccessfulStatusCode(_: Int)
-    /// A request returned an error that has an underlying error.
-    case wrapping(Error)
 
     public var errorDescription: String? {
         switch self {
-        case .unsuccessfulStatusCode(let statusCode):
-            return "\(statusCode): An error ocurred."
-        case .wrapping(let error):
-            return error.localizedDescription
+        case .unsuccessfulStatusCode(let statusCode): "\(statusCode): An error ocurred."
         }
     }
 }
