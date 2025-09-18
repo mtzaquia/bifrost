@@ -51,13 +51,31 @@ public protocol API {
     /// Makes a specific request to the target API.
     /// This function has a default implementation that can be overridden. This is useful for handling error codes in a bespoke way, or mocking responses.
     ///
+    /// To handle responses in a more granular level, implement this function in your custom type conforming to ``API``, then call the internal
+    /// function, ``API/_response(for:)``, which performs the actual network operation. i.e.:
+    ///
+    /// ```swift
+    /// struct MyAPI: API {
+    ///   /* ... */
+    ///   func response<Request>(
+    ///     for request: Request
+    ///   ) async throws -> Request.Response where Request : Requestable {
+    ///     do {
+    ///       return try await _response(for: request)
+    ///     } catch BifrostError.unsuccessfulStatusCode(404) {
+    ///       try await _response(for: TokenRefreshRequest())
+    ///     }
+    ///
+    ///     return try await _response(for: request)
+    ///   }
+    /// }
+    /// ```
+    ///
     /// - Parameters:
     ///   - request: The request to be used.
-    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
     /// - Returns: A strongly-typed response from the API.
     func response<Request>(
-        for request: Request,
-        additionalHeaderFields: [String: String]
+        for request: Request
     ) async throws -> Request.Response where Request: Requestable
 }
 
@@ -79,24 +97,11 @@ public extension API {
     func response<Request>(
         for request: Request
     ) async throws -> Request.Response where Request: Requestable {
-        try await response(for: request, additionalHeaderFields: [:])
+        try await _response(for: request)
     }
 
-    func response<Request>(
-        for request: Request,
-        additionalHeaderFields: [String: String]
-    ) async throws -> Request.Response where Request: Requestable {
-        try await perform(request: request, additionalHeaderFields: additionalHeaderFields)
-    }
-
-    /// The default implementation for the API, which fetches data
-    /// - Parameters:
-    ///   - request: The request to be used.
-    ///   - additionalHeaderFields: Extra header fields to be appended when executing the request. Useful for signed bodies, for instance.
-    /// - Returns: A strongly-typed response from the API.
-    func perform<Request>(
-        request: Request,
-        additionalHeaderFields: [String: String]
+    func _response<Request>(
+        for request: Request
     ) async throws -> Request.Response where Request: Requestable {
         let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
 
@@ -107,7 +112,6 @@ public extension API {
         let requestForTask = try buildURLRequest(
             for: request,
             at: requestURL,
-            additionalHeaderFields: additionalHeaderFields,
             isDebugLoggingEnabled: isDebugLoggingEnabled
         )
 
@@ -155,7 +159,6 @@ private extension API {
     func buildURLRequest<Request>(
         for request: Request,
         at url: URL,
-        additionalHeaderFields: [String: String],
         isDebugLoggingEnabled: Bool
     ) throws -> URLRequest where Request: Requestable {
         var urlRequest = URLRequest(url: url)
@@ -172,7 +175,6 @@ private extension API {
 
         let allHeaderFields = headerFields(body: urlRequest.httpBody)
             .merging(request.headerFields, uniquingKeysWith: { (_, new) in new })
-            .merging(additionalHeaderFields, uniquingKeysWith: { (_, new) in new })
 
         for (field, value) in allHeaderFields {
             urlRequest.setValue(value, forHTTPHeaderField: field)
