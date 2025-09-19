@@ -8,7 +8,7 @@ Bifrost is available via Swift Package Manager.
 
 ```swift
 dependencies: [
-  .package(url: "https://github.com/mtzaquia/bifrost.git", .upToNextMajor(from: "1.0.0")),
+  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "2.0.0"),
 ],
 ```
 
@@ -30,9 +30,9 @@ You can define default parameters and headers that will apply to all requests. Y
 ```swift
 struct MyAPI: API {
   // ...
-  func defaultParameters() -> [String : Any] {
+  func queryParameters() -> [URLQueryItem]
     [
-      "api-key": "<my secret key>"
+      URLQueryItem(name: "api-key", value: "<my secret key>")
     ]
   }
 
@@ -53,15 +53,10 @@ You can also provide default header fields for a specific request if needed, and
 struct MyRequest {
   private(set) var name: String
   private(set) var anotherParam: String?
-  
-  enum CodingKeys: String, CodingKey {
-    case name
-    case anotherParam = "another-param"
-  }
 }
 
 extension MyRequest: Requestable {
-  var path: String { "my-request.json" }
+  var path: String { "api/my-request" }
   
   struct Response: Decodable {
     let results: [MyResultObject]
@@ -69,7 +64,7 @@ extension MyRequest: Requestable {
 }
 ``` 
 
-> **Note**
+> [!NOTE]
 > If you expect an empty response, the built-in `EmptyResponse` type is avaiable for convenience.
 
 ### Making the call
@@ -82,27 +77,30 @@ let response = try await MyAPI.response(for: MyRequest(name: "My fancy name"))
 print(response.results) // Our response is already a Swift type! More specifically, an instance of `MyRequest.Response`.
 ```
 
-### Mocking
+### Mocking, recovering
 
-You may provide your own implementation of the `response(for:callback:)` function for mocking purposes:
+You may provide your own implementation of the `response(for:)` function for mocking purposes, or to handle recovery with custom logic:
 
 ```swift
 struct MockedAPI: API {
   let baseURL: URL = URL(string: "foo://bar")!
-    
+
   func response<Request>(
-      for request: Request,
-      additionalHeaderFields: [String: String],
-      callback: @escaping (Result<Request.Response, Error>) -> Void
-  ) where Request : Requestable {
-      // my mocked implementation...
+  for request: Request
+  ) async throws -> Request.Response where Request : Requestable {
+  do {
+      return try await _response(for: request)
+  } catch BifrostError.unsuccessfulStatusCode(404) {
+      try await _response(for: TokenRefreshRequest())
+  }
+  return try await _response(for: request)
   }
 }
 ```
 
 ## License
 
-Copyright (c) 2021 @mtzaquia
+Copyright (c) 2025 @mtzaquia
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
