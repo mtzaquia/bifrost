@@ -8,7 +8,7 @@ Bifrost is available via Swift Package Manager.
 
 ```swift
 dependencies: [
-  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.0"),
+  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.1"),
 ],
 ```
 
