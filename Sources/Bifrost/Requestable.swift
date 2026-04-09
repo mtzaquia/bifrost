@@ -29,6 +29,7 @@ public enum HTTPMethod: String {
     case get = "GET"
     case post = "POST"
     case put = "PUT"
+    case patch = "PATCH"
     case delete = "DELETE"
 }
 
@@ -60,7 +61,7 @@ public protocol Requestable: Encodable {
 
     /// A function that provides the request parameters that should be part of the HTTP body.
     ///
-    /// - Important: By default, all parameters are provided via HTTP body on ``HTTPMethod/post`` requests. You can override this function and provide a custom implementation.
+    /// - Important: By default, all parameters are provided via HTTP body on ``HTTPMethod/post``, ``HTTPMethod/put``, and ``HTTPMethod/patch`` requests. You can override this function and provide a custom implementation.
     ///
     /// - Parameter encoder: The JSON encoder that should be used for building the result.
     /// - Returns: The HTTP body to be embeded with the request.
@@ -87,7 +88,7 @@ public extension Requestable {
     }
     
     func bodyParameters(_ encoder: JSONEncoder) throws -> Data? {
-        if [HTTPMethod.post, .put].contains(method) {
+        if [HTTPMethod.post, .put, .patch].contains(method) {
             return try encoder.encode(self)
         } else {
             return nil
