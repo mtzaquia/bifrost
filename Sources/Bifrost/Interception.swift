@@ -35,11 +35,11 @@ public enum InterceptionResult<Value> {
 
 /// A response container used while the interception pipeline is executing.
 ///
-/// It gives interceptors access to both the decoded response body and the underlying
+/// It gives interceptors access to both the raw response body and the underlying
 /// HTTP metadata associated with that response.
-public struct InterceptedResponse<Response> {
-    /// The decoded response body.
-    public var body: Response
+public struct InterceptedResponse {
+    /// The raw response body.
+    public var body: Data
 
     /// The underlying HTTP response metadata.
     public var httpResponse: HTTPURLResponse
@@ -60,12 +60,12 @@ public struct InterceptedResponse<Response> {
         )
     }
 
-    /// Creates an intercepted response from a decoded body and its HTTP metadata.
+    /// Creates an intercepted response from a raw body and its HTTP metadata.
     ///
     /// - Parameters:
-    ///   - body: The decoded response body.
+    ///   - body: The raw response body.
     ///   - httpResponse: The HTTP response metadata associated with that body.
-    public init(body: Response, httpResponse: HTTPURLResponse) {
+    public init(body: Data, httpResponse: HTTPURLResponse) {
         self.body = body
         self.httpResponse = httpResponse
     }
@@ -76,8 +76,8 @@ public struct InterceptedResponse<Response> {
 /// Request interceptors run in order. They receive the request model by `inout`, which lets them
 /// rewrite request values before URL/query/header/body generation happens. Returning
 /// ``InterceptionResult/continue`` passes execution to the next request interceptor. Returning
-/// ``InterceptionResult/return(_:)`` short-circuits transport and provides the mocked or recovered
-/// response that will be passed to response interceptors.
+/// ``InterceptionResult/return(_:)`` short-circuits transport and provides a raw mocked or
+/// recovered response that will be passed to response interceptors.
 public protocol RequestInterceptor {
     /// Intercepts a request before transport.
     ///
@@ -85,14 +85,14 @@ public protocol RequestInterceptor {
     /// - Returns: Whether the request phase should continue or short-circuit with a response.
     func intercept<Request>(
         _ request: inout Request
-    ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request: Requestable
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable
 }
 
-/// An object that can inspect or mutate a decoded response and its HTTP metadata.
+/// An object that can inspect or mutate a raw response and its HTTP metadata.
 ///
 /// Response interceptors run in order after transport succeeds or a request interceptor short-circuits.
-/// They receive an ``InterceptedResponse`` by `inout`, allowing them to update the decoded body,
-/// replace the HTTP metadata, or both. A retry closure is provided so interceptors can rerun the
+/// They receive an ``InterceptedResponse`` containing raw response data by `inout`, allowing them
+/// to update the body bytes, replace the HTTP metadata, or both. A retry closure is provided so interceptors can rerun the
 /// original request pipeline after performing recovery work. Returning
 /// ``InterceptionResult/continue`` passes execution to the next response interceptor. Returning
 /// ``InterceptionResult/return(_:)`` stops the response phase early and returns the supplied
@@ -100,11 +100,11 @@ public protocol RequestInterceptor {
 public protocol ResponseInterceptor {
     /// Intercepts a response before the final response body is returned to the caller.
     ///
-    /// - Parameter response: The mutable intercepted response, including decoded body and HTTP metadata.
+    /// - Parameter response: The mutable intercepted response, including raw body data and HTTP metadata.
     /// - Parameter retry: Reruns the original request pipeline and returns a fresh intercepted response.
     /// - Returns: Whether the response phase should continue or stop early with a replacement response.
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> where Response: Decodable
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse>
 }

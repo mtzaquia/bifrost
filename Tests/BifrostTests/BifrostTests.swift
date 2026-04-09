@@ -552,7 +552,7 @@ private struct ProtectedAPI: API {
 private struct MutatingRequestInterceptor: RequestInterceptor {
     func intercept<Request>(
         _ request: inout Request
-    ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request : Requestable {
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
         guard var exampleRequest = request as? ExampleRequest else {
             return .continue
         }
@@ -572,7 +572,7 @@ private struct AppendingRequestInterceptor: RequestInterceptor {
 
     func intercept<Request>(
         _ request: inout Request
-    ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request : Requestable {
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
         guard var exampleRequest = request as? ExampleRequest else {
             return .continue
         }
@@ -591,7 +591,7 @@ private struct MockingRequestInterceptor: RequestInterceptor {
 
     func intercept<Request>(
         _ request: inout Request
-    ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request : Requestable {
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
         guard request is ExampleRequest else {
             return .continue
         }
@@ -607,7 +607,7 @@ private struct MockingRequestInterceptor: RequestInterceptor {
 
         return .return(
             InterceptedResponse(
-                body: body as! Request.Response,
+                body: try JSONEncoder().encode(body),
                 httpResponse: httpResponse
             )
         )
@@ -619,7 +619,7 @@ private struct InjectingTokenInterceptor: RequestInterceptor {
 
     func intercept<Request>(
         _ request: inout Request
-    ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request : Requestable {
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
         guard var protectedRequest = request as? ProtectedRequest else {
             return .continue
         }
@@ -633,29 +633,29 @@ private struct InjectingTokenInterceptor: RequestInterceptor {
 private struct ThrowingRequestInterceptor: RequestInterceptor {
     func intercept<Request>(
         _ request: inout Request
-    ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request : Requestable {
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
         throw TestError.request
     }
 }
 
 private struct ResumingProtectedResponseInterceptor: ResponseInterceptor {
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
         guard response.headerFields["X-Auth-Recovered"] == "true" else {
             return .continue
         }
 
-        guard let body = response.body as? ProtectedRequest.Response else {
-            return .continue
-        }
+        let body = try JSONDecoder().decode(ProtectedRequest.Response.self, from: response.body)
 
         guard let value = body.value else {
             return .continue
         }
 
-        response.body = ProtectedRequest.Response(value: value + "-resumed", error: nil) as! Response
+        response.body = try JSONEncoder().encode(
+            ProtectedRequest.Response(value: value + "-resumed", error: nil)
+        )
         return .continue
     }
 }
@@ -663,10 +663,10 @@ private struct ResumingProtectedResponseInterceptor: ResponseInterceptor {
 private struct RefreshingTokenResponseInterceptor: ResponseInterceptor {
     let flow: AuthFlow
 
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
         guard response.statusCode == 401 else {
             return .continue
         }
@@ -690,13 +690,11 @@ private struct RefreshingTokenResponseInterceptor: ResponseInterceptor {
 private struct CapturingResponseInterceptor: ResponseInterceptor {
     let recorder: ResponseRecorder
 
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
-        guard let body = response.body as? ExampleRequest.Response else {
-            return .continue
-        }
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
+        let body = try JSONDecoder().decode(ExampleRequest.Response.self, from: response.body)
 
         recorder.record(
             statusCode: response.statusCode,
@@ -711,15 +709,15 @@ private struct CapturingResponseInterceptor: ResponseInterceptor {
 private struct MutatingResponseInterceptor: ResponseInterceptor {
     let suffix: String
 
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
-        guard let body = response.body as? ExampleRequest.Response else {
-            return .continue
-        }
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
+        let body = try JSONDecoder().decode(ExampleRequest.Response.self, from: response.body)
 
-        response.body = ExampleRequest.Response(value: body.value + suffix) as! Response
+        response.body = try JSONEncoder().encode(
+            ExampleRequest.Response(value: body.value + suffix)
+        )
         return .continue
     }
 }
@@ -729,10 +727,10 @@ private struct ShortCircuitingResponseInterceptor: ResponseInterceptor {
     let statusCode: Int
     let headers: [String: String]
 
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
         let httpResponse = try XCTUnwrap(
             HTTPURLResponse(
                 url: response.httpResponse.url!,
@@ -744,7 +742,7 @@ private struct ShortCircuitingResponseInterceptor: ResponseInterceptor {
 
         return .return(
             InterceptedResponse(
-                body: body as! Response,
+                body: try JSONEncoder().encode(body),
                 httpResponse: httpResponse
             )
         )
@@ -752,10 +750,10 @@ private struct ShortCircuitingResponseInterceptor: ResponseInterceptor {
 }
 
 private struct ThrowingResponseInterceptor: ResponseInterceptor {
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
         throw TestError.response
     }
 }
@@ -763,10 +761,10 @@ private struct ThrowingResponseInterceptor: ResponseInterceptor {
 private struct StatusRecordingResponseInterceptor: ResponseInterceptor {
     let recorder: StatusRecorder
 
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
         recorder.record(response.statusCode)
         return .continue
     }
@@ -776,10 +774,10 @@ private struct NormalizingStatusCodeInterceptor: ResponseInterceptor {
     let from: Int
     let to: Int
 
-    func intercept<Response>(
-        _ response: inout InterceptedResponse<Response>,
-        retry: () async throws -> InterceptedResponse<Response>
-    ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+    func intercept(
+        _ response: inout InterceptedResponse,
+        retry: () async throws -> InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
         guard response.statusCode == from else {
             return .continue
         }

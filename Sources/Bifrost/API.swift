@@ -82,19 +82,19 @@ public extension API {
     /// Makes a specific request to the target API.
     ///
     /// The request is first passed through ``requestInterceptors``. If none of them short-circuit,
-    /// Bifrost builds the ``URLRequest`` and performs the network call internally. The resulting
-    /// response, whether network-backed or mocked, is then passed through ``responseInterceptors``.
-    /// Unsuccessful HTTP status codes are surfaced only after the response phase completes, which
-    /// allows response interceptors to recover and retry.
+    /// Bifrost builds the ``URLRequest`` and performs the network call internally. The resulting raw
+    /// response, whether network-backed or mocked, is then passed through ``responseInterceptors`` and
+    /// decoded only after the response phase completes. Unsuccessful HTTP status codes are surfaced
+    /// only after response interception, which allows recovery flows such as refresh-and-retry.
     ///
     /// - Parameter request: The request to perform.
     /// - Returns: The final decoded response body after all interceptors have run.
     func response<Request>(
         for request: Request
     ) async throws -> Request.Response where Request: Requestable {
-        func executeRequest() async throws -> InterceptedResponse<Request.Response> {
+        func executeRequest() async throws -> InterceptedResponse {
             var interceptedRequest = request
-            var interceptedResponse: InterceptedResponse<Request.Response>?
+            var interceptedResponse: InterceptedResponse?
 
             for interceptor in requestInterceptors where interceptedResponse == nil {
                 switch try await interceptor.intercept(&interceptedRequest) {
@@ -108,7 +108,7 @@ public extension API {
             if let interceptedResponse {
                 return interceptedResponse
             } else {
-                return try await performResponse(for: interceptedRequest)
+                return try await getResponse(for: interceptedRequest)
             }
         }
 
@@ -119,28 +119,33 @@ public extension API {
             case .continue:
                 continue
             case .return(let response):
-                return try handleResponse(response)
+                return try decodeResponse(response, as: Request.Response.self)
             }
         }
 
-        return try handleResponse(finalResponse)
+        return try decodeResponse(finalResponse, as: Request.Response.self)
     }
 }
 
 private extension API {
-    func handleResponse<Response>(
-        _ response: InterceptedResponse<Response>
-    ) throws -> Response {
+    func decodeResponse<Response>(
+        _ response: InterceptedResponse,
+        as responseType: Response.Type
+    ) throws -> Response where Response: Decodable {
         if !(200..<400).contains(response.statusCode) {
             throw BifrostError.unsuccessfulStatusCode(response.statusCode)
         }
 
-        return response.body
+        if responseType == EmptyResponse.self {
+            return EmptyResponse() as! Response
+        } else {
+            return try jsonDecoder.decode(responseType, from: response.body)
+        }
     }
 
-    func performResponse<Request>(
+    func getResponse<Request>(
         for request: Request
-    ) async throws -> InterceptedResponse<Request.Response> where Request: Requestable {
+    ) async throws -> InterceptedResponse where Request: Requestable {
         let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
 
         let requestURL = try buildURL(for: request)
@@ -169,17 +174,7 @@ private extension API {
             Logger.bifrost.debug("├ response: \(code)\n| \(headers.prettyPrinted(separator: "\n| "))")
         }
 
-        if Request.Response.self == EmptyResponse.self {
-            return InterceptedResponse(
-                body: EmptyResponse() as! Request.Response,
-                httpResponse: httpResponse
-            )
-        } else {
-            return InterceptedResponse(
-                body: try jsonDecoder.decode(Request.Response.self, from: data),
-                httpResponse: httpResponse
-            )
-        }
+        return InterceptedResponse(body: data, httpResponse: httpResponse)
     }
 }
 

@@ -82,9 +82,9 @@ print(response.results) // Our response is already a Swift type! More specifical
 You can define request and response interceptors on your API for request mutation, mocking, and response post-processing.
 
 - `requestInterceptors` run before Bifrost builds the final `URLRequest`
-- `responseInterceptors` run after Bifrost has either decoded a network response or received a mocked response from a request interceptor
+- `responseInterceptors` run on raw response data before Bifrost decodes the final success body
 - both phases use `InterceptionResult<T>` with `.continue` and `.return(...)`
-- mocked and real responses share the same `InterceptedResponse<Response>` wrapper, which exposes `body`, `httpResponse`, `statusCode`, and normalized `headerFields`
+- mocked and real responses share the same `InterceptedResponse` wrapper, which exposes `body`, `httpResponse`, `statusCode`, and normalized `headerFields`
 - response interceptors receive a `retry()` closure that reruns the original request pipeline
 - unsuccessful HTTP statuses are surfaced after the response phase, so response interceptors can recover from responses like `401`
 
@@ -94,7 +94,7 @@ struct AddAuthorization: RequestInterceptor {
 
   func intercept<Request>(
     _ request: inout Request
-  ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request: Requestable {
+  ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable {
     if var authenticated = request as? MyRequest {
       authenticated.token = token
       request = authenticated as! Request
@@ -105,10 +105,10 @@ struct AddAuthorization: RequestInterceptor {
 }
 
 struct RewriteResponse: ResponseInterceptor {
-  func intercept<Response>(
-    _ response: inout InterceptedResponse<Response>,
-    retry: () async throws -> InterceptedResponse<Response>
-  ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+  func intercept(
+    _ response: inout InterceptedResponse,
+    retry: () async throws -> InterceptedResponse
+  ) async throws -> InterceptionResult<InterceptedResponse> {
     return .continue
   }
 }
@@ -132,7 +132,7 @@ Request interceptors mutate the request model itself, not `URLRequest`. That mea
 struct MockUser: RequestInterceptor {
   func intercept<Request>(
     _ request: inout Request
-  ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request: Requestable {
+  ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable {
     guard request is GetUserRequest else {
       return .continue
     }
@@ -146,7 +146,7 @@ struct MockUser: RequestInterceptor {
 
     return .return(
       InterceptedResponse(
-        body: GetUserRequest.Response(name: "Mocked User") as! Request.Response,
+        body: Data(#"{"name":"Mocked User"}"#.utf8),
         httpResponse: httpResponse
       )
     )
@@ -154,14 +154,14 @@ struct MockUser: RequestInterceptor {
 }
 ```
 
-Response interceptors always receive the full intercepted response, including metadata, so they can make decisions based on the HTTP code or headers as well as the decoded body. They can also call `retry()` to rerun request interception, request building, and transport after doing recovery work like refreshing a token.
+Response interceptors always receive the full intercepted response, including metadata, so they can make decisions based on the HTTP code, headers, and raw body bytes before decoding happens. They can also call `retry()` to rerun request interception, request building, and transport after doing recovery work like refreshing a token.
 
 ```swift
 struct NormalizeUser: ResponseInterceptor {
-  func intercept<Response>(
-    _ response: inout InterceptedResponse<Response>,
-    retry: () async throws -> InterceptedResponse<Response>
-  ) async throws -> InterceptionResult<InterceptedResponse<Response>> where Response: Decodable {
+  func intercept(
+    _ response: inout InterceptedResponse,
+    retry: () async throws -> InterceptedResponse
+  ) async throws -> InterceptionResult<InterceptedResponse> {
     if response.statusCode == 202 {
       response.httpResponse = HTTPURLResponse(
         url: response.httpResponse.url!,
