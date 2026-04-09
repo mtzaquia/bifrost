@@ -36,7 +36,7 @@ public protocol API {
     /// The default header fields that should always be added to requests on this particular API.
     ///
     /// - Parameter body: The body for the request about to be submitted.
-    /// - Returns: The headers that are to be included with all the requests for this particular API.
+    /// - Returns: The headers that are to be included with all the requests for this particular **API**.
     func headerFields(body: Data?) -> [String: String]
 
     /// The default query parameters that should always be added to requests on this particular API.
@@ -47,36 +47,18 @@ public protocol API {
     
     /// The `JSONDecoder` instance that will decode your API responses.
     var jsonDecoder: JSONDecoder { get }
-    
-    /// Makes a specific request to the target API.
-    /// This function has a default implementation that can be overridden. This is useful for handling error codes in a bespoke way, or mocking responses.
+
+    /// The request interceptors applied before the final ``URLRequest`` is built.
     ///
-    /// To handle responses in a more granular level, implement this function in your custom type conforming to ``API``, then call the internal
-    /// function, ``API/_response(for:)``, which performs the actual network operation. i.e.:
+    /// These interceptors run in array order and can either continue the pipeline or
+    /// short-circuit transport by returning an ``InterceptedResponse``.
+    var requestInterceptors: [any RequestInterceptor] { get }
+
+    /// The response interceptors applied after a response has been decoded or mocked.
     ///
-    /// ```swift
-    /// struct MyAPI: API {
-    ///   /* ... */
-    ///   func response<Request>(
-    ///     for request: Request
-    ///   ) async throws -> Request.Response where Request : Requestable {
-    ///     do {
-    ///       return try await _response(for: request)
-    ///     } catch BifrostError.unsuccessfulStatusCode(404) {
-    ///       try await _response(for: TokenRefreshRequest())
-    ///     }
-    ///
-    ///     return try await _response(for: request)
-    ///   }
-    /// }
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - request: The request to be used.
-    /// - Returns: A strongly-typed response from the API.
-    func response<Request>(
-        for request: Request
-    ) async throws -> Request.Response where Request: Requestable
+    /// These interceptors run in array order and can inspect or mutate the decoded body,
+    /// status code, and headers before the final response body is returned.
+    var responseInterceptors: [any ResponseInterceptor] { get }
 }
 
 // MARK: - Defaults
@@ -89,20 +71,76 @@ public extension API {
 
     var jsonEncoder: JSONEncoder { defaultJSONEncoder }
     var jsonDecoder: JSONDecoder { defaultJSONDecoder }
+
+    var requestInterceptors: [any RequestInterceptor] { [] }
+    var responseInterceptors: [any ResponseInterceptor] { [] }
 }
 
 // MARK: - Request
 
 public extension API {
+    /// Makes a specific request to the target API.
+    ///
+    /// The request is first passed through ``requestInterceptors``. If none of them short-circuit,
+    /// Bifrost builds the ``URLRequest`` and performs the network call internally. The resulting
+    /// response, whether network-backed or mocked, is then passed through ``responseInterceptors``.
+    /// Unsuccessful HTTP status codes are surfaced only after the response phase completes, which
+    /// allows response interceptors to recover and retry.
+    ///
+    /// - Parameter request: The request to perform.
+    /// - Returns: The final decoded response body after all interceptors have run.
     func response<Request>(
         for request: Request
     ) async throws -> Request.Response where Request: Requestable {
-        try await _response(for: request)
+        func executeRequest() async throws -> InterceptedResponse<Request.Response> {
+            var interceptedRequest = request
+            var interceptedResponse: InterceptedResponse<Request.Response>?
+
+            for interceptor in requestInterceptors where interceptedResponse == nil {
+                switch try await interceptor.intercept(&interceptedRequest) {
+                case .continue:
+                    continue
+                case .return(let response):
+                    interceptedResponse = response
+                }
+            }
+
+            if let interceptedResponse {
+                return interceptedResponse
+            } else {
+                return try await performResponse(for: interceptedRequest)
+            }
+        }
+
+        var finalResponse = try await executeRequest()
+
+        for interceptor in responseInterceptors {
+            switch try await interceptor.intercept(&finalResponse, retry: executeRequest) {
+            case .continue:
+                continue
+            case .return(let response):
+                return try handleResponse(response)
+            }
+        }
+
+        return try handleResponse(finalResponse)
+    }
+}
+
+private extension API {
+    func handleResponse<Response>(
+        _ response: InterceptedResponse<Response>
+    ) throws -> Response {
+        if !(200..<400).contains(response.statusCode) {
+            throw BifrostError.unsuccessfulStatusCode(response.statusCode)
+        }
+
+        return response.body
     }
 
-    func _response<Request>(
+    func performResponse<Request>(
         for request: Request
-    ) async throws -> Request.Response where Request: Requestable {
+    ) async throws -> InterceptedResponse<Request.Response> where Request: Requestable {
         let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
 
         let requestURL = try buildURL(for: request)
@@ -121,20 +159,26 @@ public extension API {
 
         try Task.checkCancellation()
 
-        if isDebugLoggingEnabled, let response = response as? HTTPURLResponse {
-            let code = response.statusCode
-            let headers = response.allHeaderFields
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        if isDebugLoggingEnabled {
+            let code = httpResponse.statusCode
+            let headers = httpResponse.allHeaderFields
             Logger.bifrost.debug("├ response: \(code)\n| \(headers.prettyPrinted(separator: "\n| "))")
         }
 
-        if let statusCode = (response as? HTTPURLResponse)?.statusCode, !(200..<400).contains(statusCode) {
-            throw BifrostError.unsuccessfulStatusCode(statusCode)
-        }
-
         if Request.Response.self == EmptyResponse.self {
-            return EmptyResponse() as! Request.Response
+            return InterceptedResponse(
+                body: EmptyResponse() as! Request.Response,
+                httpResponse: httpResponse
+            )
         } else {
-            return try jsonDecoder.decode(Request.Response.self, from: data)
+            return InterceptedResponse(
+                body: try jsonDecoder.decode(Request.Response.self, from: data),
+                httpResponse: httpResponse
+            )
         }
     }
 }

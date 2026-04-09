@@ -48,7 +48,7 @@ public protocol Requestable: Encodable {
     /// The HTTP method to be used for this request. Defaults to ``HTTPMethod/get``.
     var method: HTTPMethod { get }
     
-    /// The default header fields that should always be added on this request.
+    /// The default header fields that should always be added on this **request**.
     var headerFields: [String: String] { get }
     
     /// A function that provides the request parameters that should be part of the URL, as query parameters.

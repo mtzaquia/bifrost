@@ -8,7 +8,7 @@ Bifrost is available via Swift Package Manager.
 
 ```swift
 dependencies: [
-  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "2.0.0"),
+  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.0"),
 ],
 ```
 
@@ -73,27 +73,105 @@ Finally, you are ready to submit a request! Concurrency allows you to inline you
 
 ```swift
 // ...
-let response = try await MyAPI.response(for: MyRequest(name: "My fancy name"))
+let response = try await MyAPI().response(for: MyRequest(name: "My fancy name"))
 print(response.results) // Our response is already a Swift type! More specifically, an instance of `MyRequest.Response`.
 ```
 
-### Mocking, recovering
+### Intercepting requests and responses
 
-You may provide your own implementation of the `response(for:)` function for mocking purposes, or to handle recovery with custom logic:
+You can define request and response interceptors on your API for request mutation, mocking, and response post-processing.
+
+- `requestInterceptors` run before Bifrost builds the final `URLRequest`
+- `responseInterceptors` run after Bifrost has either decoded a network response or received a mocked response from a request interceptor
+- both phases use `InterceptionResult<T>` with `.continue` and `.return(...)`
+- mocked and real responses share the same `InterceptedResponse<Response>` wrapper, which exposes `body`, `httpResponse`, `statusCode`, and normalized `headerFields`
+- response interceptors receive a `retry()` closure that reruns the original request pipeline
+- unsuccessful HTTP statuses are surfaced after the response phase, so response interceptors can recover from responses like `401`
 
 ```swift
-struct MockedAPI: API {
-  let baseURL: URL = URL(string: "foo://bar")!
+struct AddAuthorization: RequestInterceptor {
+  let token: String
 
-  func response<Request>(
-  for request: Request
-  ) async throws -> Request.Response where Request : Requestable {
-  do {
-      return try await _response(for: request)
-  } catch BifrostError.unsuccessfulStatusCode(404) {
-      try await _response(for: TokenRefreshRequest())
+  func intercept<Request>(
+    _ request: inout Request
+  ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request: Requestable {
+    if var authenticated = request as? MyRequest {
+      authenticated.token = token
+      request = authenticated as! Request
+    }
+
+    return .continue
   }
-  return try await _response(for: request)
+}
+
+struct RewriteResponse: ResponseInterceptor {
+  func intercept<Response>(
+    _ response: inout InterceptedResponse<Response>,
+    retry: () async throws -> InterceptedResponse<Response>
+  ) async throws -> InterceptionResult<InterceptedResponse<Response>> {
+    return .continue
+  }
+}
+
+struct MyAPI: API {
+  let baseURL = URL(string: "https://api.myapi.com/v2/")!
+
+  var requestInterceptors: [any RequestInterceptor] {
+    [AddAuthorization(token: "<token>")]
+  }
+
+  var responseInterceptors: [any ResponseInterceptor] {
+    [RewriteResponse()]
+  }
+}
+```
+
+Request interceptors mutate the request model itself, not `URLRequest`. That means any change they make still flows through the normal Bifrost request-building logic for path, query, headers, and body.
+
+```swift
+struct MockUser: RequestInterceptor {
+  func intercept<Request>(
+    _ request: inout Request
+  ) async throws -> InterceptionResult<InterceptedResponse<Request.Response>> where Request: Requestable {
+    guard request is GetUserRequest else {
+      return .continue
+    }
+
+    let httpResponse = HTTPURLResponse(
+      url: URL(string: "https://api.myapi.com/v2/user")!,
+      statusCode: 200,
+      httpVersion: nil,
+      headerFields: ["X-Mocked": "true"]
+    )!
+
+    return .return(
+      InterceptedResponse(
+        body: GetUserRequest.Response(name: "Mocked User") as! Request.Response,
+        httpResponse: httpResponse
+      )
+    )
+  }
+}
+```
+
+Response interceptors always receive the full intercepted response, including metadata, so they can make decisions based on the HTTP code or headers as well as the decoded body. They can also call `retry()` to rerun request interception, request building, and transport after doing recovery work like refreshing a token.
+
+```swift
+struct NormalizeUser: ResponseInterceptor {
+  func intercept<Response>(
+    _ response: inout InterceptedResponse<Response>,
+    retry: () async throws -> InterceptedResponse<Response>
+  ) async throws -> InterceptionResult<InterceptedResponse<Response>> where Response: Decodable {
+    if response.statusCode == 202 {
+      response.httpResponse = HTTPURLResponse(
+        url: response.httpResponse.url!,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: response.headerFields
+      )!
+    }
+
+    return .continue
   }
 }
 ```
