@@ -26,6 +26,11 @@ import OSLog
 private let defaultJSONDecoder = JSONDecoder()
 private let defaultJSONEncoder = JSONEncoder()
 
+private enum PipelineResult {
+    case response(InterceptedResponse)
+    case restart
+}
+
 public protocol API {
     /// The base URL from which requests will be made. _i.e.:_ https://api.myapp.com/
     var baseURL: URL { get }
@@ -77,15 +82,17 @@ public extension API {
     /// Bifrost first builds the ``URLRequest`` and passes it through ``requestInterceptors``.
     /// If none of them short-circuit, Bifrost performs the network call internally. The resulting raw
     /// response, whether network-backed or mocked, is then passed through ``responseInterceptors`` and
-    /// decoded only after the response phase completes. Unsuccessful HTTP status codes are surfaced
-    /// only after response interception, which allows recovery flows such as refresh-and-retry.
+    /// decoded only after the response phase completes. Interceptors may return
+    /// ``InterceptionResult/restart`` to restart the full request and response pipeline. Unsuccessful
+    /// HTTP status codes are surfaced only after response interception, which allows recovery flows
+    /// such as refresh-and-restart.
     ///
     /// - Parameter request: The request to perform.
     /// - Returns: The final decoded response body after all interceptors have run.
     func response<Request>(
         for request: Request
     ) async throws -> Request.Response where Request: Requestable {
-        func executeRequest() async throws -> InterceptedResponse {
+        func executeRequest() async throws -> PipelineResult {
             let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
             let requestURL = try buildURL(for: request)
             let requestForTask = try buildURLRequest(
@@ -94,39 +101,61 @@ public extension API {
             )
 
             var context = InterceptionContext(request: request, urlRequest: requestForTask)
-            var interceptedResponse: InterceptedResponse?
 
-            for interceptor in requestInterceptors where interceptedResponse == nil {
+            for interceptor in requestInterceptors {
                 switch try await interceptor.intercept(&context) {
                 case .continue:
                     continue
                 case .return(let response):
-                    interceptedResponse = response
+                    return .response(response)
+                case .restart:
+                    return .restart
                 }
             }
 
-            if let interceptedResponse {
-                return interceptedResponse
-            } else {
-                return try await getResponse(
-                    for: context.urlRequest,
-                    isDebugLoggingEnabled: isDebugLoggingEnabled
-                )
-            }
+            let response = try await getResponse(
+                for: context.urlRequest,
+                isDebugLoggingEnabled: isDebugLoggingEnabled
+            )
+            return .response(response)
         }
 
-        var finalResponse = try await executeRequest()
+        func executeResponseInterceptors(
+            _ response: InterceptedResponse
+        ) async throws -> PipelineResult {
+            var finalResponse = response
 
-        for interceptor in responseInterceptors {
-            switch try await interceptor.intercept(&finalResponse, retry: executeRequest) {
-            case .continue:
+            for interceptor in responseInterceptors {
+                switch try await interceptor.intercept(&finalResponse) {
+                case .continue:
+                    continue
+                case .return(let response):
+                    return .response(response)
+                case .restart:
+                    return .restart
+                }
+            }
+
+            return .response(finalResponse)
+        }
+
+        while true {
+            let requestResult = try await executeRequest()
+
+            switch requestResult {
+            case .restart:
                 continue
-            case .return(let response):
-                return try decodeResponse(response, as: Request.Response.self)
+            case .response(let response):
+                let responseResult = try await executeResponseInterceptors(response)
+
+                switch responseResult {
+                case .restart:
+                    continue
+                case .response(let response):
+                    return try decodeResponse(response, as: Request.Response.self)
+                }
             }
         }
-
-        return try decodeResponse(finalResponse, as: Request.Response.self)
     }
 }
 

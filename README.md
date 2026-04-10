@@ -8,7 +8,7 @@ Bifrost is available via Swift Package Manager.
 
 ```swift
 dependencies: [
-  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.1"),
+  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.4"),
 ],
 ```
 
@@ -84,9 +84,9 @@ You can define request and response interceptors on your API for request mutatio
 - `requestInterceptors` run after Bifrost builds the final `URLRequest` and before transport
 - request-local headers belong in `Requestable.headerFields`; API-wide headers belong in request interceptors
 - `responseInterceptors` run on raw response data before Bifrost decodes the final success body
-- both phases use `InterceptionResult<T>` with `.continue` and `.return(...)`
+- both phases use `InterceptionResult<T>` with `.continue`, `.return(...)`, and `.restart`
 - mocked and real responses share the same `InterceptedResponse` wrapper, which exposes `body`, `httpResponse`, `statusCode`, and normalized `headerFields`
-- response interceptors receive a `retry()` closure that reruns the original request pipeline
+- interceptors can return `.restart` to rerun the full request and response interceptor pipeline
 - unsuccessful HTTP statuses are surfaced after the response phase, so response interceptors can recover from responses like `401`
 
 ```swift
@@ -106,8 +106,7 @@ struct AddAuthorization: RequestInterceptor {
 
 struct RewriteResponse: ResponseInterceptor {
   func intercept(
-    _ response: inout InterceptedResponse,
-    retry: () async throws -> InterceptedResponse
+    _ response: inout InterceptedResponse
   ) async throws -> InterceptionResult<InterceptedResponse> {
     return .continue
   }
@@ -154,13 +153,12 @@ struct MockUser: RequestInterceptor {
 }
 ```
 
-Response interceptors always receive the full intercepted response, including metadata, so they can make decisions based on the HTTP code, headers, and raw body bytes before decoding happens. They can also call `retry()` to rerun request interception, request building, and transport after doing recovery work like refreshing a token.
+Response interceptors always receive the full intercepted response, including metadata, so they can make decisions based on the HTTP code, headers, and raw body bytes before decoding happens. They can also return `.restart` after doing recovery work like refreshing a token.
 
 ```swift
 struct NormalizeUser: ResponseInterceptor {
   func intercept(
-    _ response: inout InterceptedResponse,
-    retry: () async throws -> InterceptedResponse
+    _ response: inout InterceptedResponse
   ) async throws -> InterceptionResult<InterceptedResponse> {
     if response.statusCode == 202 {
       response.httpResponse = HTTPURLResponse(

@@ -24,13 +24,16 @@ import Foundation
 
 /// The result of an interceptor invocation.
 ///
-/// Use ``continue`` to keep moving through the chain, or ``return(_:)`` to stop the
-/// current phase early and provide the response that should be used from that point on.
+/// Use ``continue`` to keep moving through the chain, ``return(_:)`` to stop the
+/// current phase early and provide the response that should be used from that point on,
+/// or ``restart`` to restart the full request and response interception pipeline.
 public enum InterceptionResult<Value> {
     /// Continue with the next interceptor or transport step.
     case `continue`
     /// Stop the current interceptor phase and use the provided value instead.
     case `return`(Value)
+    /// Restart the full interception pipeline from the original request.
+    case restart
 }
 
 /// A response container used while the interception pipeline is executing.
@@ -95,7 +98,8 @@ public struct InterceptionContext<Request: Requestable> {
 /// the original request and mutate the authoritative ``URLRequest`` before it is sent. Returning
 /// ``InterceptionResult/continue`` passes execution to the next request interceptor. Returning
 /// ``InterceptionResult/return(_:)`` short-circuits transport and provides a raw mocked or
-/// recovered response that will be passed to response interceptors.
+/// recovered response that will be passed to response interceptors. Returning
+/// ``InterceptionResult/restart`` restarts the full request and response interception pipeline.
 public protocol RequestInterceptor {
     /// Intercepts a request before transport.
     ///
@@ -110,19 +114,17 @@ public protocol RequestInterceptor {
 ///
 /// Response interceptors run in order after transport succeeds or a request interceptor short-circuits.
 /// They receive an ``InterceptedResponse`` containing raw response data by `inout`, allowing them
-/// to update the body bytes, replace the HTTP metadata, or both. A retry closure is provided so interceptors can rerun the
-/// original request pipeline after performing recovery work. Returning
+/// to update the body bytes, replace the HTTP metadata, or both. Returning
 /// ``InterceptionResult/continue`` passes execution to the next response interceptor. Returning
 /// ``InterceptionResult/return(_:)`` stops the response phase early and returns the supplied
-/// response to the caller.
+/// response to the caller. Returning ``InterceptionResult/restart`` restarts the full request and
+/// response interception pipeline.
 public protocol ResponseInterceptor {
     /// Intercepts a response before the final response body is returned to the caller.
     ///
     /// - Parameter response: The mutable intercepted response, including raw body data and HTTP metadata.
-    /// - Parameter retry: Reruns the original request pipeline and returns a fresh intercepted response.
     /// - Returns: Whether the response phase should continue or stop early with a replacement response.
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse>
 }

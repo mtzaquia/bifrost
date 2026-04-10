@@ -124,6 +124,48 @@ final class BifrostTests: XCTestCase {
         XCTAssertEqual(response, .init(value: "ordered"))
     }
 
+    func testRequestInterceptorRestartRerunsRequestAndResponseInterceptors() async throws {
+        let requestRecorder = RequestRecorder()
+        let restartRecorder = RestartRecorder()
+
+        URLProtocolStub.setObserver { request in
+            requestRecorder.record(request)
+        }
+
+        URLProtocolStub.setHandler { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Restarted"), "true")
+
+            return StubbedResponse(
+                body: #"{"value":"restarted"}"#,
+                statusCode: 200
+            )
+        }
+
+        let api = TestAPI(
+            requestInterceptors: [
+                RestartingRequestInterceptor(recorder: restartRecorder)
+            ],
+            responseInterceptors: [
+                RestartRecordingResponseInterceptor(recorder: restartRecorder)
+            ],
+            urlSession: makeURLSession()
+        )
+
+        let response = try await api.response(
+            for: ExampleRequest(
+                pathComponent: "restart",
+                queryValue: "q",
+                headerValue: "header",
+                payloadValue: "body"
+            )
+        )
+
+        XCTAssertEqual(response, .init(value: "restarted-response"))
+        XCTAssertEqual(requestRecorder.count(), 1)
+        XCTAssertEqual(restartRecorder.requestInterceptorCount(), 2)
+        XCTAssertEqual(restartRecorder.responseInterceptorCount(), 1)
+    }
+
     func testRequestInterceptorCanShortCircuitWithMockedResponse() async throws {
         let requestRecorder = RequestRecorder()
         let responseRecorder = ResponseRecorder()
@@ -321,7 +363,7 @@ final class BifrostTests: XCTestCase {
         XCTAssertEqual(requestCount, 1)
     }
 
-    func testResponseInterceptorCanRefreshAfter401AndResumeChain() async throws {
+    func testResponseInterceptorCanRefreshAfter401AndRestartPipeline() async throws {
         let requestRecorder = RequestRecorder()
         let flow = AuthFlow(urlSession: makeURLSession())
 
@@ -656,12 +698,30 @@ private struct ThrowingRequestInterceptor: RequestInterceptor {
     }
 }
 
+private struct RestartingRequestInterceptor: RequestInterceptor {
+    let recorder: RestartRecorder
+
+    func intercept<Request>(
+        _ context: inout InterceptionContext<Request>
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
+        guard context.request is ExampleRequest else {
+            return .continue
+        }
+
+        if recorder.recordRequestInterceptionAndShouldRestart() {
+            return .restart
+        }
+
+        context.urlRequest.setValue("true", forHTTPHeaderField: "X-Restarted")
+        return .continue
+    }
+}
+
 private struct ResumingProtectedResponseInterceptor: ResponseInterceptor {
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
-        guard response.headerFields["X-Auth-Recovered"] == "true" else {
+        guard response.headerFields["X-Transport"] == "retried" else {
             return .continue
         }
 
@@ -682,8 +742,7 @@ private struct RefreshingTokenResponseInterceptor: ResponseInterceptor {
     let flow: AuthFlow
 
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
         guard response.statusCode == 401 else {
             return .continue
@@ -691,17 +750,7 @@ private struct RefreshingTokenResponseInterceptor: ResponseInterceptor {
 
         let refreshResponse = try await flow.api.response(for: RefreshTokenRequest())
         flow.tokenStore.setToken(refreshResponse.token)
-
-        var retriedResponse = try await retry()
-        retriedResponse.httpResponse = HTTPURLResponse(
-            url: retriedResponse.httpResponse.url!,
-            statusCode: retriedResponse.statusCode,
-            httpVersion: nil,
-            headerFields: retriedResponse.headerFields.merging(["X-Auth-Recovered": "true"]) { _, new in new }
-        )!
-
-        response = retriedResponse
-        return .continue
+        return .restart
     }
 }
 
@@ -709,8 +758,7 @@ private struct CapturingResponseInterceptor: ResponseInterceptor {
     let recorder: ResponseRecorder
 
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
         let body = try JSONDecoder().decode(ExampleRequest.Response.self, from: response.body)
 
@@ -728,8 +776,7 @@ private struct MutatingResponseInterceptor: ResponseInterceptor {
     let suffix: String
 
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
         let body = try JSONDecoder().decode(ExampleRequest.Response.self, from: response.body)
 
@@ -746,8 +793,7 @@ private struct ShortCircuitingResponseInterceptor: ResponseInterceptor {
     let headers: [String: String]
 
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
         let httpResponse = try XCTUnwrap(
             HTTPURLResponse(
@@ -769,8 +815,7 @@ private struct ShortCircuitingResponseInterceptor: ResponseInterceptor {
 
 private struct ThrowingResponseInterceptor: ResponseInterceptor {
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
         throw TestError.response
     }
@@ -780,8 +825,7 @@ private struct StatusRecordingResponseInterceptor: ResponseInterceptor {
     let recorder: StatusRecorder
 
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
         recorder.record(response.statusCode)
         return .continue
@@ -793,8 +837,7 @@ private struct NormalizingStatusCodeInterceptor: ResponseInterceptor {
     let to: Int
 
     func intercept(
-        _ response: inout InterceptedResponse,
-        retry: () async throws -> InterceptedResponse
+        _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse> {
         guard response.statusCode == from else {
             return .continue
@@ -807,6 +850,22 @@ private struct NormalizingStatusCodeInterceptor: ResponseInterceptor {
             headerFields: response.headerFields
         )!
 
+        return .continue
+    }
+}
+
+private struct RestartRecordingResponseInterceptor: ResponseInterceptor {
+    let recorder: RestartRecorder
+
+    func intercept(
+        _ response: inout InterceptedResponse
+    ) async throws -> InterceptionResult<InterceptedResponse> {
+        recorder.recordResponseInterception()
+
+        let body = try JSONDecoder().decode(ExampleRequest.Response.self, from: response.body)
+        response.body = try JSONEncoder().encode(
+            ExampleRequest.Response(value: body.value + "-response")
+        )
         return .continue
     }
 }
@@ -892,6 +951,37 @@ private final class StatusRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return statuses
+    }
+}
+
+private final class RestartRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var requestInterceptions = 0
+    private var responseInterceptions = 0
+
+    func recordRequestInterceptionAndShouldRestart() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        requestInterceptions += 1
+        return requestInterceptions == 1
+    }
+
+    func recordResponseInterception() {
+        lock.lock()
+        defer { lock.unlock() }
+        responseInterceptions += 1
+    }
+
+    func requestInterceptorCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestInterceptions
+    }
+
+    func responseInterceptorCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return responseInterceptions
     }
 }
 
