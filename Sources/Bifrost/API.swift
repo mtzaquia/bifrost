@@ -33,12 +33,6 @@ public protocol API {
     /// The session to the used for this API. The default implementation provides `.shared` as default.
     var urlSession: URLSession { get }
     
-    /// The default header fields that should always be added to requests on this particular API.
-    ///
-    /// - Parameter body: The body for the request about to be submitted.
-    /// - Returns: The headers that are to be included with all the requests for this particular **API**.
-    func headerFields(body: Data?) -> [String: String]
-
     /// The default query parameters that should always be added to requests on this particular API.
     func queryParameters() -> [URLQueryItem]
     
@@ -48,15 +42,15 @@ public protocol API {
     /// The `JSONDecoder` instance that will decode your API responses.
     var jsonDecoder: JSONDecoder { get }
 
-    /// The request interceptors applied before the final ``URLRequest`` is built.
+    /// The request interceptors applied after the final ``URLRequest`` is built and before transport.
     ///
     /// These interceptors run in array order and can either continue the pipeline or
-    /// short-circuit transport by returning an ``InterceptedResponse``.
+    /// mutate the built ``URLRequest`` or short-circuit transport by returning an ``InterceptedResponse``.
     var requestInterceptors: [any RequestInterceptor] { get }
 
-    /// The response interceptors applied after a response has been decoded or mocked.
+    /// The response interceptors applied after a raw response has been received or mocked.
     ///
-    /// These interceptors run in array order and can inspect or mutate the decoded body,
+    /// These interceptors run in array order and can inspect or mutate the raw body,
     /// status code, and headers before the final response body is returned.
     var responseInterceptors: [any ResponseInterceptor] { get }
 }
@@ -66,7 +60,6 @@ public protocol API {
 public extension API {
     var urlSession: URLSession { .shared }
 
-    func headerFields(body: Data?) -> [String: String] { [:] }
     func queryParameters() -> [URLQueryItem] { [] }
 
     var jsonEncoder: JSONEncoder { defaultJSONEncoder }
@@ -81,8 +74,8 @@ public extension API {
 public extension API {
     /// Makes a specific request to the target API.
     ///
-    /// The request is first passed through ``requestInterceptors``. If none of them short-circuit,
-    /// Bifrost builds the ``URLRequest`` and performs the network call internally. The resulting raw
+    /// Bifrost first builds the ``URLRequest`` and passes it through ``requestInterceptors``.
+    /// If none of them short-circuit, Bifrost performs the network call internally. The resulting raw
     /// response, whether network-backed or mocked, is then passed through ``responseInterceptors`` and
     /// decoded only after the response phase completes. Unsuccessful HTTP status codes are surfaced
     /// only after response interception, which allows recovery flows such as refresh-and-retry.
@@ -93,11 +86,18 @@ public extension API {
         for request: Request
     ) async throws -> Request.Response where Request: Requestable {
         func executeRequest() async throws -> InterceptedResponse {
-            var interceptedRequest = request
+            let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
+            let requestURL = try buildURL(for: request)
+            let requestForTask = try buildURLRequest(
+                for: request,
+                at: requestURL
+            )
+
+            var context = InterceptionContext(request: request, urlRequest: requestForTask)
             var interceptedResponse: InterceptedResponse?
 
             for interceptor in requestInterceptors where interceptedResponse == nil {
-                switch try await interceptor.intercept(&interceptedRequest) {
+                switch try await interceptor.intercept(&context) {
                 case .continue:
                     continue
                 case .return(let response):
@@ -108,7 +108,10 @@ public extension API {
             if let interceptedResponse {
                 return interceptedResponse
             } else {
-                return try await getResponse(for: interceptedRequest)
+                return try await getResponse(
+                    for: context.urlRequest,
+                    isDebugLoggingEnabled: isDebugLoggingEnabled
+                )
             }
         }
 
@@ -143,24 +146,26 @@ private extension API {
         }
     }
 
-    func getResponse<Request>(
-        for request: Request
-    ) async throws -> InterceptedResponse where Request: Requestable {
-        let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
+    func getResponse(
+        for request: URLRequest,
+        isDebugLoggingEnabled: Bool
+    ) async throws -> InterceptedResponse {
+        let method = request.httpMethod ?? "GET"
+        let url = request.url?.absoluteString ?? "<missing URL>"
+        Logger.bifrost.info("❄ \(method) \(url)")
 
-        let requestURL = try buildURL(for: request)
+        if isDebugLoggingEnabled {
+            if let body = request.httpBody {
+                let bodyString = String(data: body, encoding: .utf8)
+                Logger.bifrost.debug("├ body: \(String(describing: bodyString))")
+            }
 
-        Logger.bifrost.info("❄ \(request.method.rawValue) \(requestURL.absoluteString)")
-
-        let requestForTask = try buildURLRequest(
-            for: request,
-            at: requestURL,
-            isDebugLoggingEnabled: isDebugLoggingEnabled
-        )
+            Logger.bifrost.debug("├ header fields: \(request.allHTTPHeaderFields ?? [:])")
+        }
 
         try Task.checkCancellation()
 
-        let (data, response) = try await urlSession.data(for: requestForTask)
+        let (data, response) = try await urlSession.data(for: request)
 
         try Task.checkCancellation()
 
@@ -197,30 +202,17 @@ private extension API {
 
     func buildURLRequest<Request>(
         for request: Request,
-        at url: URL,
-        isDebugLoggingEnabled: Bool
+        at url: URL
     ) throws -> URLRequest where Request: Requestable {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue
 
         if let body = try request.bodyParameters(jsonEncoder) {
             urlRequest.httpBody = body
-
-            if isDebugLoggingEnabled {
-                let bodyString = String(data: body, encoding: .utf8)
-                Logger.bifrost.debug("├ body: \(String(describing: bodyString))")
-            }
         }
 
-        let allHeaderFields = headerFields(body: urlRequest.httpBody)
-            .merging(request.headerFields, uniquingKeysWith: { (_, new) in new })
-
-        for (field, value) in allHeaderFields {
+        for (field, value) in request.headerFields {
             urlRequest.setValue(value, forHTTPHeaderField: field)
-        }
-
-        if isDebugLoggingEnabled {
-            Logger.bifrost.debug("├ header fields: \(urlRequest.allHTTPHeaderFields ?? [:])")
         }
 
         return urlRequest

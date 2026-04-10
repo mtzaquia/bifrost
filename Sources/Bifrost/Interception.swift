@@ -71,20 +71,38 @@ public struct InterceptedResponse {
     }
 }
 
-/// An object that can inspect or mutate a request before it is converted into a ``URLRequest``.
+/// A context passed through request interception.
 ///
-/// Request interceptors run in order. They receive the request model by `inout`, which lets them
-/// rewrite request values before URL/query/header/body generation happens. Returning
+/// The original request model is read-only. The built ``URLRequest`` is mutable and is the
+/// authoritative request that will be sent if the chain continues to transport.
+public struct InterceptionContext<Request: Requestable> {
+    /// The original request model used to build the ``urlRequest``.
+    public let request: Request
+
+    /// The built request that will be sent if interception continues to transport.
+    public var urlRequest: URLRequest
+
+    init(request: Request, urlRequest: URLRequest) {
+        self.request = request
+        self.urlRequest = urlRequest
+    }
+}
+
+/// An object that can inspect or mutate a built ``URLRequest`` before transport.
+///
+/// Request interceptors run in order after Bifrost has built the final ``URLRequest`` from the
+/// request model. They receive an ``InterceptionContext`` by `inout`, which lets them inspect
+/// the original request and mutate the authoritative ``URLRequest`` before it is sent. Returning
 /// ``InterceptionResult/continue`` passes execution to the next request interceptor. Returning
 /// ``InterceptionResult/return(_:)`` short-circuits transport and provides a raw mocked or
 /// recovered response that will be passed to response interceptors.
 public protocol RequestInterceptor {
     /// Intercepts a request before transport.
     ///
-    /// - Parameter request: The mutable request model that will later be used to build the final ``URLRequest``.
+    /// - Parameter context: The request interception context containing the original request and built ``URLRequest``.
     /// - Returns: Whether the request phase should continue or short-circuit with a response.
     func intercept<Request>(
-        _ request: inout Request
+        _ context: inout InterceptionContext<Request>
     ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable
 }
 

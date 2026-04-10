@@ -25,7 +25,7 @@ struct MyAPI: API {
 }
 ``` 
 
-You can define default parameters and headers that will apply to all requests. You can also configure the decoder for your specific use-case.
+You can define default query parameters that will apply to all requests. You can also configure the decoder for your specific use-case.
 
 ```swift
 struct MyAPI: API {
@@ -47,7 +47,7 @@ struct MyAPI: API {
 ### Requests
 
 For each request, create a type with its supported parameters. Make sure this type conforms to `Requestable`. 
-You can also provide default header fields for a specific request if needed, and you can choose the HTTP method for that request. 
+You can also provide header fields for a specific request if needed, and you can choose the HTTP method for that request.
 
 ```swift
 struct MyRequest {
@@ -81,7 +81,8 @@ print(response.results) // Our response is already a Swift type! More specifical
 
 You can define request and response interceptors on your API for request mutation, mocking, and response post-processing.
 
-- `requestInterceptors` run before Bifrost builds the final `URLRequest`
+- `requestInterceptors` run after Bifrost builds the final `URLRequest` and before transport
+- request-local headers belong in `Requestable.headerFields`; API-wide headers belong in request interceptors
 - `responseInterceptors` run on raw response data before Bifrost decodes the final success body
 - both phases use `InterceptionResult<T>` with `.continue` and `.return(...)`
 - mocked and real responses share the same `InterceptedResponse` wrapper, which exposes `body`, `httpResponse`, `statusCode`, and normalized `headerFields`
@@ -93,11 +94,10 @@ struct AddAuthorization: RequestInterceptor {
   let token: String
 
   func intercept<Request>(
-    _ request: inout Request
+    _ context: inout InterceptionContext<Request>
   ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable {
-    if var authenticated = request as? MyRequest {
-      authenticated.token = token
-      request = authenticated as! Request
+    if context.request is MyRequest {
+      context.urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
 
     return .continue
@@ -126,14 +126,14 @@ struct MyAPI: API {
 }
 ```
 
-Request interceptors mutate the request model itself, not `URLRequest`. That means any change they make still flows through the normal Bifrost request-building logic for path, query, headers, and body.
+Request interceptors receive an `InterceptionContext` with the original typed request as read-only context and the final built `URLRequest` as the mutable request that will be sent.
 
 ```swift
 struct MockUser: RequestInterceptor {
   func intercept<Request>(
-    _ request: inout Request
+    _ context: inout InterceptionContext<Request>
   ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable {
-    guard request is GetUserRequest else {
+    guard context.request is GetUserRequest else {
       return .continue
     }
 

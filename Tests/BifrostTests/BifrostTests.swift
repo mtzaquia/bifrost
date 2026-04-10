@@ -47,7 +47,7 @@ final class BifrostTests: XCTestCase {
         }
     }
 
-    func testRequestInterceptorMutatesRequestBeforeTransport() async throws {
+    func testRequestInterceptorMutatesBuiltURLRequestBeforeTransport() async throws {
         let requestRecorder = RequestRecorder()
 
         URLProtocolStub.setObserver { request in
@@ -71,7 +71,10 @@ final class BifrostTests: XCTestCase {
         }
 
         let api = TestAPI(
-            requestInterceptors: [MutatingRequestInterceptor()],
+            requestInterceptors: [
+                DefaultHeadersInterceptor(),
+                MutatingRequestInterceptor()
+            ],
             responseInterceptors: [],
             urlSession: makeURLSession()
         )
@@ -435,10 +438,6 @@ private struct TestAPI: API {
     let requestInterceptors: [any RequestInterceptor]
     let responseInterceptors: [any ResponseInterceptor]
     let urlSession: URLSession
-
-    func headerFields(body: Data?) -> [String : String] {
-        ["X-API-Header": "api"]
-    }
 }
 
 private struct ExampleRequest: Requestable {
@@ -468,17 +467,10 @@ private struct ExampleRequest: Requestable {
     }
 }
 
-private struct ProtectedRequest: Requestable {
-    var token: String?
+private protocol AuthenticatedRequest {}
 
+private struct ProtectedRequest: Requestable, AuthenticatedRequest {
     var path: String { "protected" }
-    var headerFields: [String : String] {
-        guard let token else {
-            return [:]
-        }
-
-        return ["Authorization": "Bearer \(token)"]
-    }
 
     struct Response: Codable, Equatable, Sendable {
         let value: String?
@@ -549,19 +541,32 @@ private struct ProtectedAPI: API {
     let urlSession: URLSession
 }
 
+private struct DefaultHeadersInterceptor: RequestInterceptor {
+    func intercept<Request>(
+        _ context: inout InterceptionContext<Request>
+    ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
+        context.urlRequest.setValue("api", forHTTPHeaderField: "X-API-Header")
+        return .continue
+    }
+}
+
 private struct MutatingRequestInterceptor: RequestInterceptor {
     func intercept<Request>(
-        _ request: inout Request
+        _ context: inout InterceptionContext<Request>
     ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
-        guard var exampleRequest = request as? ExampleRequest else {
+        guard let exampleRequest = context.request as? ExampleRequest else {
             return .continue
         }
 
-        exampleRequest.pathComponent = "mutated"
-        exampleRequest.queryValue = "rewritten"
-        exampleRequest.headerValue = "intercepted"
-        exampleRequest.payloadValue = "updated-body"
-        request = exampleRequest as! Request
+        XCTAssertEqual(exampleRequest.pathComponent, "original")
+        XCTAssertEqual(context.urlRequest.url?.absoluteString, "https://example.com/api/items/original?q=initial")
+        XCTAssertEqual(context.urlRequest.httpMethod, "POST")
+        XCTAssertEqual(context.urlRequest.value(forHTTPHeaderField: "X-API-Header"), "api")
+        XCTAssertEqual(context.urlRequest.value(forHTTPHeaderField: "X-Request-Header"), "request")
+
+        context.urlRequest.url = URL(string: "https://example.com/api/items/mutated?q=rewritten")!
+        context.urlRequest.setValue("intercepted", forHTTPHeaderField: "X-Request-Header")
+        context.urlRequest.httpBody = try JSONEncoder().encode(ExampleRequest.Payload(value: "updated-body"))
         return .continue
     }
 }
@@ -571,15 +576,29 @@ private struct AppendingRequestInterceptor: RequestInterceptor {
     let querySuffix: String
 
     func intercept<Request>(
-        _ request: inout Request
+        _ context: inout InterceptionContext<Request>
     ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
-        guard var exampleRequest = request as? ExampleRequest else {
+        guard context.request is ExampleRequest else {
             return .continue
         }
 
-        exampleRequest.pathComponent += pathSuffix
-        exampleRequest.queryValue += querySuffix
-        request = exampleRequest as! Request
+        guard
+            let url = context.urlRequest.url,
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else {
+            throw URLError(.badURL)
+        }
+
+        components.path += pathSuffix
+        components.queryItems = components.queryItems?.map { item in
+            guard item.name == "q" else {
+                return item
+            }
+
+            return URLQueryItem(name: item.name, value: (item.value ?? "") + querySuffix)
+        }
+
+        context.urlRequest.url = components.url
         return .continue
     }
 }
@@ -590,9 +609,9 @@ private struct MockingRequestInterceptor: RequestInterceptor {
     let headers: [String: String]
 
     func intercept<Request>(
-        _ request: inout Request
+        _ context: inout InterceptionContext<Request>
     ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
-        guard request is ExampleRequest else {
+        guard context.request is ExampleRequest else {
             return .continue
         }
 
@@ -618,21 +637,20 @@ private struct InjectingTokenInterceptor: RequestInterceptor {
     let flow: AuthFlow
 
     func intercept<Request>(
-        _ request: inout Request
+        _ context: inout InterceptionContext<Request>
     ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
-        guard var protectedRequest = request as? ProtectedRequest else {
+        guard context.request is any AuthenticatedRequest else {
             return .continue
         }
 
-        protectedRequest.token = flow.tokenStore.token()
-        request = protectedRequest as! Request
+        context.urlRequest.setValue("Bearer \(flow.tokenStore.token())", forHTTPHeaderField: "Authorization")
         return .continue
     }
 }
 
 private struct ThrowingRequestInterceptor: RequestInterceptor {
     func intercept<Request>(
-        _ request: inout Request
+        _ context: inout InterceptionContext<Request>
     ) async throws -> InterceptionResult<InterceptedResponse> where Request : Requestable {
         throw TestError.request
     }
