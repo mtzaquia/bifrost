@@ -1,4 +1,4 @@
-# Bifrost
+# ❄️ Bifrost
 
 Bifrost is a lightweight, scalable framework for interacting with JSON, REST APIs.
 
