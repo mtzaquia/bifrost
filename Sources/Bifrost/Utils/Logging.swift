@@ -23,28 +23,36 @@
 import Foundation
 import OSLog
 
-/// Global Bifrost diagnostic configuration.
+/// A namespace for process-wide Bifrost configuration.
 public enum Bifrost {
     /// The amount of network diagnostic detail emitted by Bifrost in debug builds.
     public enum DebugLogLevel: Equatable, Sendable {
-        /// Disables Bifrost request logs.
+        /// Emits no Bifrost diagnostics.
         case off
 
-        /// Logs request lifecycle events, retries, cancellations, and failures.
+        /// Logs request starts, pipeline restarts, successes, cancellations, and failures.
+        ///
+        /// Request URLs omit the query, fragment, and embedded user credentials
+        /// at this level.
         case normal
 
-        /// Includes full URLs, interceptor activity, headers, and bodies in addition to normal logs.
+        /// Adds full URLs, interceptor execution, request and response headers,
+        /// request bodies, and raw response metadata.
         ///
-        /// URLs, header values, and body values can contain credentials or personal data.
-        /// Enable this level only while diagnosing requests in a trusted environment.
+        /// Full URLs, header values, and request bodies can contain credentials
+        /// or personal data. Enable this level only in a trusted debugging
+        /// environment.
         case trace
     }
 
     private static let debugState = BifrostDebugState()
 
-    /// Controls the network diagnostics emitted by Bifrost in debug builds.
+    /// Controls the process-wide diagnostics emitted by Bifrost.
     ///
-    /// Logging is off by default. This setting has no effect in release builds.
+    /// Logging is ``DebugLogLevel/off`` by default, and reads and writes are safe
+    /// from concurrent tasks. Each request receives a trace identifier, and each
+    /// restart increments its attempt number. Diagnostic calls are compiled out
+    /// when the Bifrost module is built without `DEBUG`.
     ///
     /// ```swift
     /// Bifrost.debug = .trace
@@ -55,14 +63,15 @@ public enum Bifrost {
     }
 }
 
-/// Legacy Bifrost logging configuration.
+/// The deprecated Boolean logging configuration retained for source compatibility.
 @available(*, deprecated, message: "Use Bifrost.debug instead.")
 public enum BifrostLogging {
-    /// Controls whether detailed Bifrost request logging is enabled.
+    /// Indicates whether normal or trace diagnostics are enabled.
     ///
-    /// Setting this property to `true` is equivalent to setting ``Bifrost/debug``
-    /// to ``Bifrost/DebugLogLevel/trace``. Setting it to `false` selects
-    /// ``Bifrost/DebugLogLevel/off``.
+    /// Reading returns `true` for both ``Bifrost/DebugLogLevel/normal`` and
+    /// ``Bifrost/DebugLogLevel/trace``. Setting `true` selects
+    /// ``Bifrost/DebugLogLevel/trace``; setting `false` selects
+    /// ``Bifrost/DebugLogLevel/off``. Access remains isolated to the main actor.
     @MainActor
     public static var isDebugLoggingEnabled: Bool {
         get { Bifrost.debug != .off }

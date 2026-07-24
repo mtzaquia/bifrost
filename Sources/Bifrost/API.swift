@@ -30,32 +30,59 @@ private enum PipelineResult {
     case restart
 }
 
+/// A client configuration that builds, sends, and decodes typed HTTP requests.
+///
+/// Conforming types provide the service URL and can customize transport,
+/// JSON coding, shared query parameters, and interception. Call
+/// ``response(for:)`` with a ``Requestable`` value to execute a request.
 public protocol API {
-    /// The base URL from which requests will be made. _i.e.:_ https://api.myapp.com/
+    /// The URL against which nonempty ``Requestable/path`` values are appended.
+    ///
+    /// Query items already present in this URL are preserved. An empty request
+    /// path uses this URL without appending another path component.
     var baseURL: URL { get }
     
-    /// The session to the used for this API. The default implementation provides `.shared` as default.
+    /// The session that performs requests which reach transport.
+    ///
+    /// The default implementation returns `URLSession.shared`. Bifrost does not
+    /// invalidate a custom session.
     var urlSession: URLSession { get }
     
-    /// The default query parameters that should always be added to requests on this particular API.
+    /// Returns query items to include in every request made by this API.
+    ///
+    /// Bifrost appends these items after query items from ``baseURL`` and before
+    /// the items returned by ``Requestable/queryParameters()``. Duplicate names
+    /// are preserved.
+    ///
+    /// - Returns: The API-wide query items, or an empty array by default.
     func queryParameters() -> [URLQueryItem]
     
-    /// The `JSONEncoder` instance that will encode your API request body.
+    /// The encoder passed to ``Requestable/bodyParameters(_:)``.
+    ///
+    /// Override this property to configure the default JSON bodies for `POST`,
+    /// `PUT`, and `PATCH` requests. It does not affect default `GET` query
+    /// encoding.
     var jsonEncoder: JSONEncoder { get }
     
-    /// The `JSONDecoder` instance that will decode your API responses.
+    /// The decoder used for the final successful response body.
+    ///
+    /// ``EmptyResponse`` bypasses decoding. All other response types are decoded
+    /// only after response interception and status validation complete.
     var jsonDecoder: JSONDecoder { get }
 
-    /// The request interceptors applied after the final ``URLRequest`` is built and before transport.
+    /// The interceptors applied after the `URLRequest` is built and before transport.
     ///
-    /// These interceptors run in array order and can either continue the pipeline or
-    /// mutate the built ``URLRequest`` or short-circuit transport by returning an ``InterceptedResponse``.
+    /// Interceptors run in array order. They can mutate the authoritative request,
+    /// provide an ``InterceptedResponse`` without using transport, or restart the
+    /// pipeline. The default implementation returns an empty array.
     var requestInterceptors: [any RequestInterceptor] { get }
 
     /// The response interceptors applied after a raw response has been received or mocked.
     ///
-    /// These interceptors run in array order and can inspect or mutate the raw body,
-    /// status code, and headers before the final response body is returned.
+    /// Interceptors run in array order before status validation and decoding. They
+    /// can inspect or replace the body and HTTP metadata, return a final raw
+    /// response, or restart the full pipeline. Transport failures do not enter this
+    /// phase. The default implementation returns an empty array.
     var responseInterceptors: [any ResponseInterceptor] { get }
 }
 
@@ -76,18 +103,24 @@ public extension API {
 // MARK: - Request
 
 public extension API {
-    /// Makes a specific request to the target API.
+    /// Executes a request and decodes its typed response.
     ///
-    /// Bifrost first builds the ``URLRequest`` and passes it through ``requestInterceptors``.
-    /// If none of them short-circuit, Bifrost performs the network call internally. The resulting raw
-    /// response, whether network-backed or mocked, is then passed through ``responseInterceptors`` and
-    /// decoded only after the response phase completes. Interceptors may return
-    /// ``InterceptionResult/restart`` to restart the full request and response pipeline. Unsuccessful
-    /// HTTP status codes are surfaced only after response interception, which allows recovery flows
-    /// such as refresh-and-restart.
+    /// Bifrost builds a fresh `URLRequest`, runs ``requestInterceptors``, uses
+    /// ``urlSession`` unless an interceptor provides a response, and then runs
+    /// ``responseInterceptors``. After interception, status codes from `200`
+    /// through `399` are accepted and the body is decoded as
+    /// ``Requestable/Response``. Any other status throws
+    /// ``BifrostError/unsuccessfulStatusCode(_:)``.
+    ///
+    /// Returning ``InterceptionResult/restart`` abandons the current attempt and
+    /// rebuilds the request from the original request value. Bifrost does not cap
+    /// restart attempts, so a restarting interceptor must eventually allow the
+    /// pipeline to continue or throw.
     ///
     /// - Parameter request: The request to perform.
     /// - Returns: The final decoded response body after all interceptors have run.
+    /// - Throws: An error from request encoding, an interceptor, transport, status
+    ///   validation, or response decoding. Cancellation errors are propagated.
     func response<Request>(
         for request: Request
     ) async throws -> Request.Response where Request: Requestable {

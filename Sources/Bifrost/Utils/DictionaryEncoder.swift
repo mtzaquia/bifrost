@@ -22,25 +22,37 @@
 
 import Foundation
 
+/// A JSON encoding configuration used by Bifrost's dictionary-backed query conversion.
+///
+/// The available strategies mirror `JSONEncoder`. Bifrost's default
+/// ``Requestable/queryParameters()`` implementation owns its own encoder;
+/// constructing or configuring another instance does not change global request
+/// encoding.
 public final class DictionaryEncoder: Sendable {
+    /// Creates an encoder with the standard `JSONEncoder` strategies.
     public init() {}
     
 	private let encoder = JSONEncoder()
+
+    /// The strategy used to represent `Date` values.
 	public var dateEncodingStrategy: JSONEncoder.DateEncodingStrategy {
 		set { encoder.dateEncodingStrategy = newValue }
 		get { encoder.dateEncodingStrategy }
 	}
 	
+    /// The strategy used to represent `Data` values.
 	public var dataEncodingStrategy: JSONEncoder.DataEncodingStrategy {
 		set { encoder.dataEncodingStrategy = newValue }
 		get { encoder.dataEncodingStrategy }
 	}
 	
+    /// The strategy used to represent nonconforming floating-point values.
 	public var nonConformingFloatEncodingStrategy: JSONEncoder.NonConformingFloatEncodingStrategy {
 		set { encoder.nonConformingFloatEncodingStrategy = newValue }
 		get { encoder.nonConformingFloatEncodingStrategy }
 	}
 	
+    /// The strategy used to transform encoded keys.
 	public var keyEncodingStrategy: JSONEncoder.KeyEncodingStrategy {
 		set { encoder.keyEncodingStrategy = newValue }
 		get { encoder.keyEncodingStrategy }

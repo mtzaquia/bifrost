@@ -22,11 +22,14 @@
 
 import Foundation
 
-/// A custom type for generic errors with status code or wrapping underlying errors.
+/// An error produced by Bifrost's HTTP response validation.
 public enum BifrostError: LocalizedError {
-    /// A request returned a response with a non-success (200-299) status code.
+    /// The final intercepted response had a status code outside `200...399`.
+    ///
+    /// - Parameter statusCode: The exact status code from the final response.
     case unsuccessfulStatusCode(_: Int)
 
+    /// A localized description containing the unsuccessful HTTP status code.
     public var errorDescription: String? {
         switch self {
         case .unsuccessfulStatusCode(let statusCode): "\(statusCode): An error ocurred."

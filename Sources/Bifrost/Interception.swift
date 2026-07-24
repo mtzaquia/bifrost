@@ -24,33 +24,50 @@ import Foundation
 
 /// The result of an interceptor invocation.
 ///
-/// Use ``continue`` to keep moving through the chain, ``return(_:)`` to stop the
-/// current phase early and provide the response that should be used from that point on,
-/// or ``restart`` to restart the full request and response interception pipeline.
+/// Each case controls the remainder of the request or response interception
+/// phase. The contained value is an ``InterceptedResponse`` in Bifrost's
+/// built-in pipeline.
 public enum InterceptionResult<Value> {
-    /// Continue with the next interceptor or transport step.
+    /// Continues with the next interceptor or the next pipeline stage.
+    ///
+    /// Mutations made through the interceptor's `inout` argument remain in
+    /// effect.
     case `continue`
-    /// Stop the current interceptor phase and use the provided value instead.
+
+    /// Stops the current phase and uses the provided value.
+    ///
+    /// From a request interceptor, this skips the remaining request interceptors
+    /// and transport, then sends the value through response interception. From a
+    /// response interceptor, this skips the remaining response interceptors. The
+    /// resulting response is still subject to status validation and decoding.
     case `return`(Value)
-    /// Restart the full interception pipeline from the original request.
+
+    /// Abandons the current attempt and rebuilds the pipeline from the original request.
+    ///
+    /// Mutations to the current request or response value are discarded.
+    /// External side effects performed by an interceptor remain in effect.
+    /// Bifrost does not impose a restart limit.
     case restart
 }
 
 /// A response container used while the interception pipeline is executing.
 ///
-/// It gives interceptors access to both the raw response body and the underlying
-/// HTTP metadata associated with that response.
+/// Interceptors can mutate the raw body or replace the HTTP response before
+/// Bifrost validates the status code and decodes the body.
 public struct InterceptedResponse {
-    /// The raw response body.
+    /// The raw bytes that will be decoded if the response status is accepted.
     public var body: Data
 
-    /// The underlying HTTP response metadata.
+    /// The HTTP metadata used for status validation and header access.
     public var httpResponse: HTTPURLResponse
 
-    /// The HTTP status code of the response.
+    /// The status code read from ``httpResponse``.
     public var statusCode: Int { httpResponse.statusCode }
 
-    /// The HTTP headers normalized into a string dictionary.
+    /// The HTTP headers represented as string keys and values.
+    ///
+    /// Header entries with non-string keys are omitted. Other values are
+    /// converted with `String(describing:)`.
     public var headerFields: [String: String] {
         Dictionary(
             uniqueKeysWithValues: httpResponse.allHeaderFields.compactMap { key, value in
@@ -76,13 +93,17 @@ public struct InterceptedResponse {
 
 /// A context passed through request interception.
 ///
-/// The original request model is read-only. The built ``URLRequest`` is mutable and is the
-/// authoritative request that will be sent if the chain continues to transport.
+/// The typed request remains available for request-specific decisions. The
+/// built `URLRequest` is mutable and becomes the transport request if
+/// interception continues.
 public struct InterceptionContext<Request: Requestable> {
-    /// The original request model used to build the ``urlRequest``.
+    /// The typed request value from which the URL request was built.
     public let request: Request
 
-    /// The built request that will be sent if interception continues to transport.
+    /// The authoritative request that will be sent if interception reaches transport.
+    ///
+    /// A pipeline restart discards mutations to this value and builds a new
+    /// request from ``request``.
     public var urlRequest: URLRequest
 
     init(request: Request, urlRequest: URLRequest) {
@@ -91,20 +112,20 @@ public struct InterceptionContext<Request: Requestable> {
     }
 }
 
-/// An object that can inspect or mutate a built ``URLRequest`` before transport.
+/// An object that can inspect or mutate a built `URLRequest` before transport.
 ///
-/// Request interceptors run in order after Bifrost has built the final ``URLRequest`` from the
-/// request model. They receive an ``InterceptionContext`` by `inout`, which lets them inspect
-/// the original request and mutate the authoritative ``URLRequest`` before it is sent. Returning
-/// ``InterceptionResult/continue`` passes execution to the next request interceptor. Returning
-/// ``InterceptionResult/return(_:)`` short-circuits transport and provides a raw mocked or
-/// recovered response that will be passed to response interceptors. Returning
-/// ``InterceptionResult/restart`` restarts the full request and response interception pipeline.
+/// Request interceptors run in ``API/requestInterceptors`` order after Bifrost
+/// applies the request path, method, query, body, and headers. The generic
+/// ``intercept(_:)`` method is called for every ``Requestable`` type, so an
+/// interceptor can inspect `context.request` when behavior applies only to
+/// selected request models.
 public protocol RequestInterceptor {
     /// Intercepts a request before transport.
     ///
-    /// - Parameter context: The request interception context containing the original request and built ``URLRequest``.
-    /// - Returns: Whether the request phase should continue or short-circuit with a response.
+    /// - Parameter context: The typed request and mutable URL request for the
+    ///   current attempt.
+    /// - Returns: How Bifrost should continue the interception pipeline.
+    /// - Throws: Any error that should stop the request.
     func intercept<Request>(
         _ context: inout InterceptionContext<Request>
     ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable
@@ -112,18 +133,18 @@ public protocol RequestInterceptor {
 
 /// An object that can inspect or mutate a raw response and its HTTP metadata.
 ///
-/// Response interceptors run in order after transport succeeds or a request interceptor short-circuits.
-/// They receive an ``InterceptedResponse`` containing raw response data by `inout`, allowing them
-/// to update the body bytes, replace the HTTP metadata, or both. Returning
-/// ``InterceptionResult/continue`` passes execution to the next response interceptor. Returning
-/// ``InterceptionResult/return(_:)`` stops the response phase early and returns the supplied
-/// response to the caller. Returning ``InterceptionResult/restart`` restarts the full request and
-/// response interception pipeline.
+/// Response interceptors run in ``API/responseInterceptors`` order after
+/// transport succeeds or a request interceptor supplies a response. They run
+/// before status validation and decoding, which allows an interceptor to
+/// recover from an otherwise unsuccessful HTTP status. Transport errors do not
+/// produce an ``InterceptedResponse`` and therefore bypass this phase.
 public protocol ResponseInterceptor {
-    /// Intercepts a response before the final response body is returned to the caller.
+    /// Intercepts a response before status validation and decoding.
     ///
-    /// - Parameter response: The mutable intercepted response, including raw body data and HTTP metadata.
-    /// - Returns: Whether the response phase should continue or stop early with a replacement response.
+    /// - Parameter response: The mutable raw body and HTTP metadata for the
+    ///   current attempt.
+    /// - Returns: How Bifrost should continue the interception pipeline.
+    /// - Throws: Any error that should stop the request.
     func intercept(
         _ response: inout InterceptedResponse
     ) async throws -> InterceptionResult<InterceptedResponse>

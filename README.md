@@ -1,196 +1,87 @@
 # ❄️ Bifrost
 
-Bifrost is a lightweight, scalable framework for interacting with JSON, REST APIs.
+`Bifrost` is a typed JSON HTTP client for Swift, built around `Encodable`
+request models and `Decodable` responses.
 
-## Instalation
+An API describes shared transport configuration. Each request describes its
+path, method, inputs, and response type. Bifrost turns the two into a
+`URLRequest`, runs an interception pipeline, and returns the decoded value.
 
-Bifrost is available via Swift Package Manager.
+- Derive query items or JSON bodies from request properties.
+- Decode each endpoint into its own response type with `async`/`await`.
+- Customize sessions, JSON coding, shared query items, and request headers.
+- Mutate, mock, recover, or restart calls with ordered interceptors.
+- Trace request lifecycles with privacy-conscious diagnostic levels.
+
+```swift
+let posts = try await PostsAPI().response(
+  for: PostsForUser(userId: 1)
+)
+```
+
+## Install
+
+Bifrost supports iOS 17 and later and macOS 11 and later. It requires a Swift
+6.2 toolchain and is distributed through Swift Package Manager.
+
+Add the package dependency:
 
 ```swift
 dependencies: [
   .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.5"),
-],
+]
 ```
 
-## Usage
+Add the `Bifrost` product to the consuming target, then `import Bifrost` where
+it is used. In Xcode, enter `https://github.com/mtzaquia/bifrost.git` in
+**File → Add Package Dependencies**.
 
-### API
+## Five-minute start
 
-Simply declare an entity conforming to `API` to start, then fulfill the required protocol conformances:
-
-```swift
-struct MyAPI: API {
-  let baseURL: URL = URL(string: "https://api.myapi.com/v2/")!
-  // ...
-}
-``` 
-
-You can define default query parameters that will apply to all requests. You can also configure the decoder for your specific use-case.
+The following request loads posts for one user. Because `PostsForUser` uses the
+default `GET` method, Bifrost encodes `userId` as a query item and requests
+`https://jsonplaceholder.typicode.com/posts?userId=1`.
 
 ```swift
-struct MyAPI: API {
-  // ...
-  func queryParameters() -> [URLQueryItem]
-    [
-      URLQueryItem(name: "api-key", value: "<my secret key>")
-    ]
-  }
+import Bifrost
+import Foundation
 
-  var jsonDecoder: JSONDecoder = {
-    let jd = JSONDecoder()
-    jd.dateDecodingStrategy = .iso8601
-    return jd
-  }()
-}
-```
-
-### Requests
-
-For each request, create a type with its supported parameters. Make sure this type conforms to `Requestable`. 
-You can also provide header fields for a specific request if needed, and you can choose the HTTP method for that request.
-
-```swift
-struct MyRequest {
-  private(set) var name: String
-  private(set) var anotherParam: String?
+struct Post: Decodable, Sendable {
+  let id: Int
+  let title: String
+  let body: String
 }
 
-extension MyRequest: Requestable {
-  var path: String { "api/my-request" }
-  
-  struct Response: Decodable {
-    let results: [MyResultObject]
-  }
-}
-``` 
+struct PostsForUser: Requestable, Sendable {
+  let userId: Int
 
-> [!NOTE]
-> If you expect an empty response, the built-in `EmptyResponse` type is avaiable for convenience.
+  var path: String { "posts" }
 
-### Making the call
-
-Finally, you are ready to submit a request! Concurrency allows you to inline your call easily: 
-
-```swift
-// ...
-let response = try await MyAPI().response(for: MyRequest(name: "My fancy name"))
-print(response.results) // Our response is already a Swift type! More specifically, an instance of `MyRequest.Response`.
-```
-
-### Intercepting requests and responses
-
-You can define request and response interceptors on your API for request mutation, mocking, and response post-processing.
-
-- `requestInterceptors` run after Bifrost builds the final `URLRequest` and before transport
-- request-local headers belong in `Requestable.headerFields`; API-wide headers belong in request interceptors
-- `responseInterceptors` run on raw response data before Bifrost decodes the final success body
-- both phases use `InterceptionResult<T>` with `.continue`, `.return(...)`, and `.restart`
-- mocked and real responses share the same `InterceptedResponse` wrapper, which exposes `body`, `httpResponse`, `statusCode`, and normalized `headerFields`
-- interceptors can return `.restart` to rerun the full request and response interceptor pipeline
-- unsuccessful HTTP statuses are surfaced after the response phase, so response interceptors can recover from responses like `401`
-
-```swift
-struct AddAuthorization: RequestInterceptor {
-  let token: String
-
-  func intercept<Request>(
-    _ context: inout InterceptionContext<Request>
-  ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable {
-    if context.request is MyRequest {
-      context.urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    }
-
-    return .continue
-  }
+  typealias Response = [Post]
 }
 
-struct RewriteResponse: ResponseInterceptor {
-  func intercept(
-    _ response: inout InterceptedResponse
-  ) async throws -> InterceptionResult<InterceptedResponse> {
-    return .continue
-  }
+struct PostsAPI: API {
+  let baseURL = URL(
+    string: "https://jsonplaceholder.typicode.com"
+  )!
 }
 
-struct MyAPI: API {
-  let baseURL = URL(string: "https://api.myapi.com/v2/")!
-
-  var requestInterceptors: [any RequestInterceptor] {
-    [AddAuthorization(token: "<token>")]
-  }
-
-  var responseInterceptors: [any ResponseInterceptor] {
-    [RewriteResponse()]
-  }
+func loadPosts() async throws -> [Post] {
+  try await PostsAPI().response(
+    for: PostsForUser(userId: 1)
+  )
 }
 ```
 
-Request interceptors receive an `InterceptionContext` with the original typed request as read-only context and the final built `URLRequest` as the mutable request that will be sent.
+That is the core idea: model an endpoint as a value, associate it with the
+response it expects, and pass it to an API configuration.
 
-```swift
-struct MockUser: RequestInterceptor {
-  func intercept<Request>(
-    _ context: inout InterceptionContext<Request>
-  ) async throws -> InterceptionResult<InterceptedResponse> where Request: Requestable {
-    guard context.request is GetUserRequest else {
-      return .continue
-    }
+## Documentation
 
-    let httpResponse = HTTPURLResponse(
-      url: URL(string: "https://api.myapi.com/v2/user")!,
-      statusCode: 200,
-      httpVersion: nil,
-      headerFields: ["X-Mocked": "true"]
-    )!
-
-    return .return(
-      InterceptedResponse(
-        body: Data(#"{"name":"Mocked User"}"#.utf8),
-        httpResponse: httpResponse
-      )
-    )
-  }
-}
-```
-
-Response interceptors always receive the full intercepted response, including metadata, so they can make decisions based on the HTTP code, headers, and raw body bytes before decoding happens. They can also return `.restart` after doing recovery work like refreshing a token.
-
-```swift
-struct NormalizeUser: ResponseInterceptor {
-  func intercept(
-    _ response: inout InterceptedResponse
-  ) async throws -> InterceptionResult<InterceptedResponse> {
-    if response.statusCode == 202 {
-      response.httpResponse = HTTPURLResponse(
-        url: response.httpResponse.url!,
-        statusCode: 200,
-        httpVersion: nil,
-        headerFields: response.headerFields
-      )!
-    }
-
-    return .continue
-  }
-}
-```
-
-### Diagnosing requests
-
-Bifrost can log each request lifecycle in debug builds. Normal logging shows starts, successful responses, failures, cancellations, and pipeline restarts while omitting URL queries and embedded credentials. Trace logging adds full URLs, interceptor activity, headers, and request bodies.
-
-```swift
-Bifrost.debug = .normal
-
-// Include interceptor, header, and request-body details while debugging:
-Bifrost.debug = .trace
-```
-
-Events from the same call share a trace identifier, and restarted requests include their attempt number so they can be followed in Console. Logging is off by default and optional logs are compiled out of release builds.
-
-> [!WARNING]
-> Trace logs can contain credentials or personal data from URLs, header values, and body values. Enable `.trace` only in a trusted debugging environment.
-
-The legacy `BifrostLogging.isDebugLoggingEnabled` switch remains available for source compatibility. It maps `true` to `.trace` and `false` to `.off`.
+- [Getting started](docs/getting-started.md) — configure an API, model an endpoint, and perform the first request.
+- [Requests and responses](docs/requests-and-responses.md) — control paths, methods, parameters, headers, coding, transport, and failures.
+- [Interceptors](docs/interceptors.md) — mutate requests, provide mock responses, transform raw responses, and restart recovery flows.
+- [Diagnostics](docs/diagnostics.md) — inspect request lifecycles without exposing sensitive details by default.
 
 ## License
 

@@ -24,47 +24,79 @@ import Foundation
 
 private let defaultDictionaryEncoder = DictionaryEncoder()
 
-/// A type describing supported HTTP methods.
+/// An HTTP method supported by Bifrost's default request encoding.
 public enum HTTPMethod: String {
+    /// Retrieves a resource and encodes request properties as query items by default.
     case get = "GET"
+
+    /// Creates a resource and encodes the request as a JSON body by default.
     case post = "POST"
+
+    /// Replaces a resource and encodes the request as a JSON body by default.
     case put = "PUT"
+
+    /// Partially updates a resource and encodes the request as a JSON body by default.
     case patch = "PATCH"
+
+    /// Deletes a resource and sends neither query parameters nor a body by default.
     case delete = "DELETE"
 }
 
-/// Use this type whenever the data response of your API is expected to be empty.
+/// A response type for accepted HTTP responses whose body should be ignored.
+///
+/// When this is a request's ``Requestable/Response``, Bifrost still runs
+/// response interceptors and validates the status code, but it does not decode
+/// the response bytes.
 public struct EmptyResponse: Decodable {}
 
-/// A protocol for a type that can make requests to an API.
+/// A typed description of an HTTP request and its decoded response.
+///
+/// Conforming values are `Encodable` because the default implementations derive
+/// query items or a JSON body from the request's encoded properties.
 public protocol Requestable: Encodable {
-    /// The response type expected as a result from this request.
+    /// The type decoded after response interception and status validation.
     associatedtype Response: Decodable
     
-    /// The path for this request. This will be appended to the API's ``API/baseURL``. _i.e.:_ `"articleSearch.json"`.
+    /// The path component appended to ``API/baseURL``.
     ///
-    /// You may interpolate properties as needed in your path (_i.e.:_ `"/my-request/\(myId)"`).
+    /// Return an empty string to use the base URL unchanged. If a request
+    /// property appears in the path of a `GET` request and should not also
+    /// appear in its query, override ``queryParameters()``.
     var path: String { get }
     
-    /// The HTTP method to be used for this request. Defaults to ``HTTPMethod/get``.
+    /// The HTTP method used for the request.
+    ///
+    /// The default implementation returns ``HTTPMethod/get``.
     var method: HTTPMethod { get }
     
-    /// The default header fields that should always be added on this **request**.
+    /// The HTTP header fields applied to this request before request interception.
+    ///
+    /// The default implementation returns an empty dictionary. Bifrost does not
+    /// add a `Content-Type` header automatically, and a request interceptor can
+    /// replace values supplied here.
     var headerFields: [String: String] { get }
     
-    /// A function that provides the request parameters that should be part of the URL, as query parameters.
+    /// Returns the query items appended after the API-wide query items.
     ///
-    /// - Important: By default, all parameters are provided via query on ``HTTPMethod/get`` requests. You can override this function and provide a custom implementation.
+    /// For `GET`, the default implementation encodes a keyed request value and
+    /// emits one query item per scalar value and repeated items for array
+    /// values. Properties encoded as `nil` are omitted. A request must encode as
+    /// a keyed JSON object to use this default. Other methods return no query
+    /// items by default.
     ///
     /// - Returns: The query parameters to be appended to the request URL.
+    /// - Throws: An error raised while encoding the request.
     func queryParameters() throws -> [URLQueryItem]
 
-    /// A function that provides the request parameters that should be part of the HTTP body.
+    /// Returns the bytes to use as the HTTP request body.
     ///
-    /// - Important: By default, all parameters are provided via HTTP body on ``HTTPMethod/post``, ``HTTPMethod/put``, and ``HTTPMethod/patch`` requests. You can override this function and provide a custom implementation.
+    /// The default implementation encodes the complete request value as JSON
+    /// for `POST`, `PUT`, and `PATCH`. It returns `nil` for `GET` and `DELETE`.
+    /// Override this method to use another mapping.
     ///
-    /// - Parameter encoder: The JSON encoder that should be used for building the result.
-    /// - Returns: The HTTP body to be embeded with the request.
+    /// - Parameter encoder: The encoder supplied by ``API/jsonEncoder``.
+    /// - Returns: The request body, or `nil` to send no body.
+    /// - Throws: An error raised while encoding the request.
     func bodyParameters(_ encoder: JSONEncoder) throws -> Data?
 }
 
