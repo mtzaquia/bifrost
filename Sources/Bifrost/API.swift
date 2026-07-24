@@ -21,7 +21,6 @@
 //
 
 import Foundation
-import OSLog
 
 private let defaultJSONDecoder = JSONDecoder()
 private let defaultJSONEncoder = JSONEncoder()
@@ -92,68 +91,118 @@ public extension API {
     func response<Request>(
         for request: Request
     ) async throws -> Request.Response where Request: Requestable {
-        func executeRequest() async throws -> PipelineResult {
-            let isDebugLoggingEnabled = await BifrostLogging.isDebugLoggingEnabled
-            let requestURL = try buildURL(for: request)
-            let requestForTask = try buildURLRequest(
-                for: request,
-                at: requestURL
-            )
+        try await BifrostLogTrace.withNewID {
+            func executeRequest(attempt: Int) async throws -> PipelineResult {
+                let requestURL = try buildURL(for: request)
+                let requestForTask = try buildURLRequest(
+                    for: request,
+                    at: requestURL
+                )
 
-            var context = InterceptionContext(request: request, urlRequest: requestForTask)
+                var context = InterceptionContext(request: request, urlRequest: requestForTask)
 
-            for interceptor in requestInterceptors {
-                switch try await interceptor.intercept(&context) {
-                case .continue:
-                    continue
-                case .return(let response):
-                    return .response(response)
-                case .restart:
-                    return .restart
+                for (index, interceptor) in requestInterceptors.enumerated() {
+                    bifrostLog.bifrostDebug(
+                        .interceptorRunning(
+                            phase: .request,
+                            index: index + 1,
+                            count: requestInterceptors.count,
+                            type: String(describing: type(of: interceptor))
+                        )
+                    )
+
+                    switch try await interceptor.intercept(&context) {
+                    case .continue:
+                        continue
+                    case .return(let response):
+                        logRequest(context.urlRequest, attempt: attempt)
+                        logResponse(response, source: .requestInterceptor)
+                        return .response(response)
+                    case .restart:
+                        logRequest(context.urlRequest, attempt: attempt)
+                        return .restart
+                    }
                 }
+
+                logRequest(context.urlRequest, attempt: attempt)
+                let response = try await getResponse(for: context.urlRequest)
+                logResponse(response, source: .transport)
+                return .response(response)
             }
 
-            let response = try await getResponse(
-                for: context.urlRequest,
-                isDebugLoggingEnabled: isDebugLoggingEnabled
-            )
-            return .response(response)
-        }
+            func executeResponseInterceptors(
+                _ response: InterceptedResponse
+            ) async throws -> PipelineResult {
+                var finalResponse = response
 
-        func executeResponseInterceptors(
-            _ response: InterceptedResponse
-        ) async throws -> PipelineResult {
-            var finalResponse = response
+                for (index, interceptor) in responseInterceptors.enumerated() {
+                    bifrostLog.bifrostDebug(
+                        .interceptorRunning(
+                            phase: .response,
+                            index: index + 1,
+                            count: responseInterceptors.count,
+                            type: String(describing: type(of: interceptor))
+                        )
+                    )
 
-            for interceptor in responseInterceptors {
-                switch try await interceptor.intercept(&finalResponse) {
-                case .continue:
-                    continue
-                case .return(let response):
-                    return .response(response)
-                case .restart:
-                    return .restart
+                    switch try await interceptor.intercept(&finalResponse) {
+                    case .continue:
+                        continue
+                    case .return(let response):
+                        logResponse(response, source: .responseInterceptor)
+                        return .response(response)
+                    case .restart:
+                        return .restart
+                    }
                 }
+
+                return .response(finalResponse)
             }
 
-            return .response(finalResponse)
-        }
+            var attempt = 1
 
-        while true {
-            let requestResult = try await executeRequest()
+            do {
+                while true {
+                    let requestResult = try await executeRequest(attempt: attempt)
 
-            switch requestResult {
-            case .restart:
-                continue
-            case .response(let response):
-                let responseResult = try await executeResponseInterceptors(response)
+                    switch requestResult {
+                    case .restart:
+                        attempt += 1
+                        bifrostLog.bifrostDebug(
+                            .pipelineRestarted(phase: .request, nextAttempt: attempt)
+                        )
+                        continue
+                    case .response(let response):
+                        let responseResult = try await executeResponseInterceptors(response)
 
-                switch responseResult {
-                case .restart:
-                    continue
-                case .response(let response):
-                    return try decodeResponse(response, as: Request.Response.self)
+                        switch responseResult {
+                        case .restart:
+                            attempt += 1
+                            bifrostLog.bifrostDebug(
+                                .pipelineRestarted(phase: .response, nextAttempt: attempt)
+                            )
+                            continue
+                        case .response(let response):
+                            let decoded = try decodeResponse(response, as: Request.Response.self)
+                            bifrostLog.bifrostDebug(
+                                .requestSucceeded(
+                                    statusCode: response.statusCode,
+                                    byteCount: response.body.count
+                                )
+                            )
+                            return decoded
+                        }
+                    }
                 }
+            } catch let error as CancellationError {
+                bifrostLog.bifrostDebug(.requestCancelled)
+                throw error
+            } catch let error as URLError where error.code == .cancelled {
+                bifrostLog.bifrostDebug(.requestCancelled)
+                throw error
+            } catch {
+                bifrostLog.bifrostDebug(.requestFailed(error: error))
+                throw error
             }
         }
     }
@@ -175,23 +224,7 @@ private extension API {
         }
     }
 
-    func getResponse(
-        for request: URLRequest,
-        isDebugLoggingEnabled: Bool
-    ) async throws -> InterceptedResponse {
-        let method = request.httpMethod ?? "GET"
-        let url = request.url?.absoluteString ?? "<missing URL>"
-        Logger.bifrost.info("❄ \(method) \(url)")
-
-        if isDebugLoggingEnabled {
-            if let body = request.httpBody {
-                let bodyString = String(data: body, encoding: .utf8)
-                Logger.bifrost.debug("├ body: \(String(describing: bodyString))")
-            }
-
-            Logger.bifrost.debug("├ header fields: \(request.allHTTPHeaderFields ?? [:])")
-        }
-
+    func getResponse(for request: URLRequest) async throws -> InterceptedResponse {
         try Task.checkCancellation()
 
         let (data, response) = try await urlSession.data(for: request)
@@ -202,13 +235,47 @@ private extension API {
             throw URLError(.badServerResponse)
         }
 
-        if isDebugLoggingEnabled {
-            let code = httpResponse.statusCode
-            let headers = httpResponse.allHeaderFields
-            Logger.bifrost.debug("├ response: \(code)\n| \(headers.prettyPrinted(separator: "\n| "))")
-        }
-
         return InterceptedResponse(body: data, httpResponse: httpResponse)
+    }
+
+    func logRequest(_ request: URLRequest, attempt: Int) {
+#if DEBUG
+        bifrostLog.bifrostDebug(
+            .requestStarted(
+                attempt: attempt,
+                method: request.httpMethod ?? "GET",
+                url: BifrostLogURL.normalDescription(for: request.url)
+            )
+        )
+        bifrostLog.bifrostDebug(
+            .requestURL(request.url?.absoluteString ?? "<missing URL>")
+        )
+        bifrostLog.bifrostDebug(
+            .requestHeaders(request.allHTTPHeaderFields ?? [:])
+        )
+
+        if let body = request.httpBody {
+            bifrostLog.bifrostDebug(
+                .requestBody(
+                    body: String(data: body, encoding: .utf8) ?? "<binary>",
+                    byteCount: body.count
+                )
+            )
+        }
+#endif
+    }
+
+    func logResponse(_ response: InterceptedResponse, source: BifrostResponseSource) {
+#if DEBUG
+        bifrostLog.bifrostDebug(
+            .responseReceived(
+                source: source,
+                statusCode: response.statusCode,
+                byteCount: response.body.count
+            )
+        )
+        bifrostLog.bifrostDebug(.responseHeaders(response.headerFields))
+#endif
     }
 }
 
@@ -220,7 +287,10 @@ private extension API {
             throw URLError(.badURL)
         }
 
-        urlComponents.queryItems = (urlComponents.queryItems ?? []) + queryParameters() + (try request.queryParameters())
+        let queryItems = (urlComponents.queryItems ?? [])
+            + queryParameters()
+            + (try request.queryParameters())
+        urlComponents.queryItems = queryItems.isEmpty ? nil : queryItems
 
         guard let requestURL = urlComponents.url else {
             throw URLError(.badURL)

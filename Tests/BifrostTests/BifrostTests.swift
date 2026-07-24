@@ -41,10 +41,7 @@ final class BifrostTests: XCTestCase {
 
     override class func setUp() {
         super.setUp()
-
-        MainActor.assumeIsolated {
-            BifrostLogging.isDebugLoggingEnabled = true
-        }
+        Bifrost.debug = .trace
     }
 
     func testRequestInterceptorMutatesBuiltURLRequestBeforeTransport() async throws {
@@ -875,7 +872,7 @@ private enum TestError: Error, Equatable {
     case response
 }
 
-private struct StubbedResponse: Sendable {
+struct StubbedResponse: Sendable {
     let body: String
     let statusCode: Int
     let headers: [String: String]
@@ -985,9 +982,9 @@ private final class RestartRecorder: @unchecked Sendable {
     }
 }
 
-private final class URLProtocolStub: URLProtocol {
-    typealias Handler = (URLRequest) throws -> StubbedResponse
-    typealias Observer = (URLRequest) -> Void
+final class URLProtocolStub: URLProtocol {
+    typealias Handler = @Sendable (URLRequest) throws -> StubbedResponse
+    typealias Observer = @Sendable (URLRequest) -> Void
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var handler: Handler?
@@ -1053,13 +1050,13 @@ private final class URLProtocolStub: URLProtocol {
     }
 }
 
-private func makeURLSession() -> URLSession {
+func makeURLSession() -> URLSession {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [URLProtocolStub.self]
     return URLSession(configuration: configuration)
 }
 
-private func requestBodyData(from request: URLRequest) -> Data? {
+func requestBodyData(from request: URLRequest) -> Data? {
     if let httpBody = request.httpBody {
         return httpBody
     }
