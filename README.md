@@ -8,7 +8,7 @@ Bifrost is available via Swift Package Manager.
 
 ```swift
 dependencies: [
-  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.4"),
+  .package(url: "https://github.com/mtzaquia/bifrost.git", from: "3.0.5"),
 ],
 ```
 
@@ -173,6 +173,24 @@ struct NormalizeUser: ResponseInterceptor {
   }
 }
 ```
+
+### Diagnosing requests
+
+Bifrost can log each request lifecycle in debug builds. Normal logging shows starts, successful responses, failures, cancellations, and pipeline restarts while omitting URL queries and embedded credentials. Trace logging adds full URLs, interceptor activity, headers, and request bodies.
+
+```swift
+Bifrost.debug = .normal
+
+// Include interceptor, header, and request-body details while debugging:
+Bifrost.debug = .trace
+```
+
+Events from the same call share a trace identifier, and restarted requests include their attempt number so they can be followed in Console. Logging is off by default and optional logs are compiled out of release builds.
+
+> [!WARNING]
+> Trace logs can contain credentials or personal data from URLs, header values, and body values. Enable `.trace` only in a trusted debugging environment.
+
+The legacy `BifrostLogging.isDebugLoggingEnabled` switch remains available for source compatibility. It maps `true` to `.trace` and `false` to `.off`.
 
 ## License
 
