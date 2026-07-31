@@ -3,6 +3,7 @@
 [![Tests](https://github.com/mtzaquia/bifrost/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/mtzaquia/bifrost/actions/workflows/tests.yml)
 [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://www.swift.org/)
 [![iOS 17+](https://img.shields.io/badge/iOS-17%2B-blue.svg)](https://github.com/mtzaquia/bifrost/blob/main/Package.swift)
+![Class B](https://img.shields.io/badge/class-B-silver)
 
 `Bifrost` is a typed JSON HTTP client for Swift, built around `Encodable`
 request models and `Decodable` responses.
