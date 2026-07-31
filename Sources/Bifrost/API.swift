@@ -147,10 +147,12 @@ public extension API {
                     switch try await interceptor.intercept(&context) {
                     case .continue:
                         continue
+
                     case .return(let response):
                         logRequest(context.urlRequest, attempt: attempt)
                         logResponse(response, source: .requestInterceptor)
                         return .response(response)
+
                     case .restart:
                         logRequest(context.urlRequest, attempt: attempt)
                         return .restart
@@ -181,9 +183,11 @@ public extension API {
                     switch try await interceptor.intercept(&finalResponse) {
                     case .continue:
                         continue
+
                     case .return(let response):
                         logResponse(response, source: .responseInterceptor)
                         return .response(response)
+
                     case .restart:
                         return .restart
                     }
@@ -205,6 +209,7 @@ public extension API {
                             .pipelineRestarted(phase: .request, nextAttempt: attempt)
                         )
                         continue
+
                     case .response(let response):
                         let responseResult = try await executeResponseInterceptors(response)
 
@@ -215,6 +220,7 @@ public extension API {
                                 .pipelineRestarted(phase: .response, nextAttempt: attempt)
                             )
                             continue
+                            
                         case .response(let response):
                             let decoded = try decodeResponse(response, as: Request.Response.self)
                             bifrostLog.bifrostDebug(
