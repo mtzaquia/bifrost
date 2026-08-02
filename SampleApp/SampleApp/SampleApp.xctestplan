@@ -1,0 +1,28 @@
+{
+  "configurations" : [
+    {
+      "id" : "24499A57-8A8C-49DD-9DF6-FD06943246D4",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:SampleApp.xcodeproj",
+      "identifier" : "8B41F6442DEDD0D5001A66F9",
+      "name" : "SampleApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:SampleAppPackage",
+        "identifier" : "SampleAppFeatureTests",
+        "name" : "SampleAppFeatureTests"
+      }
+    }
+  ],
+  "version" : 1
+}
