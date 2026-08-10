@@ -764,7 +764,7 @@ struct LabResponseInterceptor: ResponseInterceptor {
     }
 }
 
-struct PipelineLabAPI: API, @unchecked Sendable {
+struct PipelineLabAPI: API {
     let baseURL = URL(string: "https://sample.bifrost.dev/v1?client=sample")!
     let requestInterceptors: [any RequestInterceptor]
     let responseInterceptors: [any ResponseInterceptor]

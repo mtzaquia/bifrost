@@ -137,7 +137,28 @@ Bifrost does not impose a restart limit. Recovery logic must eventually
 continue or throw to avoid an infinite pipeline. Errors thrown by any
 interceptor stop the request and propagate to the caller.
 
-If an interceptor shares mutable state across concurrent calls, that state is
-responsible for its own synchronization.
+## Share interceptors safely
+
+`API`, `Requestable`, request response types, and both interceptor protocols are
+`Sendable`. Immutable structs normally satisfy the contract directly. An actor
+can implement an interceptor when it intentionally owns mutable state:
+
+```swift
+actor ResponseCounter: ResponseInterceptor {
+  private(set) var count = 0
+
+  func intercept(
+    _ response: inout InterceptedResponse
+  ) async throws -> InterceptionResult<InterceptedResponse> {
+    count += 1
+    return .continue
+  }
+}
+```
+
+A mutable class can also conform when it synchronizes every shared access, but
+the class must declare and document its own `@unchecked Sendable` safety
+invariant. The containing API remains checked `Sendable`; the unchecked promise
+stays with the type that owns the mutable state.
 
 Next: [Requests and responses](requests-and-responses.md) · [Diagnostics](diagnostics.md)

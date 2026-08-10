@@ -25,7 +25,7 @@ import Foundation
 private let defaultDictionaryEncoder = DictionaryEncoder()
 
 /// An HTTP method supported by Bifrost's default request encoding.
-public enum HTTPMethod: String {
+public enum HTTPMethod: String, Sendable {
     /// Retrieves a resource and encodes request properties as query items by default.
     case get = "GET"
 
@@ -47,15 +47,20 @@ public enum HTTPMethod: String {
 /// When this is a request's ``Requestable/Response``, Bifrost still runs
 /// response interceptors and validates the status code, but it does not decode
 /// the response bytes.
-public struct EmptyResponse: Decodable {}
+public struct EmptyResponse: Decodable, Sendable {}
 
 /// A typed description of an HTTP request and its decoded response.
 ///
 /// Conforming values are `Encodable` because the default implementations derive
 /// query items or a JSON body from the request's encoded properties.
-public protocol Requestable: Encodable {
+///
+/// Request and response values are `Sendable` so they can safely enter and
+/// leave an asynchronous ``API/response(for:)`` call across isolation domains.
+/// Mutable reference models must provide explicit actor isolation or their own
+/// synchronization.
+public protocol Requestable: Encodable, Sendable {
     /// The type decoded after response interception and status validation.
-    associatedtype Response: Decodable
+    associatedtype Response: Decodable & Sendable
     
     /// The path component appended to ``API/baseURL``.
     ///

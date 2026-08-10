@@ -15,7 +15,7 @@ path, method, inputs, and response type. Bifrost turns the two into a
 - Derive query items or JSON bodies from request properties.
 - Decode each endpoint into its own response type with `async`/`await`.
 - Customize sessions, JSON coding, shared query items, and request headers.
-- Mutate, mock, recover, or restart calls with ordered interceptors.
+- Mutate, mock, recover, or restart calls with ordered sendable interceptors.
 - Trace request lifecycles with privacy-conscious diagnostic levels.
 
 ```swift

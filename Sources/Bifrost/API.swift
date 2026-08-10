@@ -35,7 +35,12 @@ private enum PipelineResult {
 /// Conforming types provide the service URL and can customize transport,
 /// JSON coding, shared query parameters, and interception. Call
 /// ``response(for:)`` with a ``Requestable`` value to execute a request.
-public protocol API {
+///
+/// APIs are `Sendable`, including their interceptor storage, so a configured
+/// client can be shared across tasks and dependency scopes without a downstream
+/// `@unchecked Sendable` conformance. Mutable reference state should be
+/// actor-isolated or independently synchronized.
+public protocol API: Sendable {
     /// The URL against which nonempty ``Requestable/path`` values are appended.
     ///
     /// Query items already present in this URL are preserved. An empty request
@@ -47,7 +52,7 @@ public protocol API {
     /// The default implementation returns `URLSession.shared`. Bifrost does not
     /// invalidate a custom session.
     var urlSession: URLSession { get }
-    
+
     /// Returns query items to include in every request made by this API.
     ///
     /// Bifrost appends these items after query items from ``baseURL`` and before

@@ -50,11 +50,13 @@ public enum InterceptionResult<Value> {
     case restart
 }
 
+extension InterceptionResult: Sendable where Value: Sendable {}
+
 /// A response container used while the interception pipeline is executing.
 ///
 /// Interceptors can mutate the raw body or replace the HTTP response before
 /// Bifrost validates the status code and decodes the body.
-public struct InterceptedResponse {
+public struct InterceptedResponse: Sendable {
     /// The raw bytes that will be decoded if the response status is accepted.
     public var body: Data
 
@@ -96,7 +98,7 @@ public struct InterceptedResponse {
 /// The typed request remains available for request-specific decisions. The
 /// built `URLRequest` is mutable and becomes the transport request if
 /// interception continues.
-public struct InterceptionContext<Request: Requestable> {
+public struct InterceptionContext<Request: Requestable>: Sendable {
     /// The typed request value from which the URL request was built.
     public let request: Request
 
@@ -119,7 +121,13 @@ public struct InterceptionContext<Request: Requestable> {
 /// ``intercept(_:)`` method is called for every ``Requestable`` type, so an
 /// interceptor can inspect `context.request` when behavior applies only to
 /// selected request models.
-public protocol RequestInterceptor {
+///
+/// Interceptors are `Sendable` because an ``API`` can be shared across
+/// isolation domains. Immutable value types satisfy this requirement directly.
+/// An interceptor with mutable reference state should isolate that state in an
+/// actor or provide its own synchronization with a documented safety invariant
+/// for its `@unchecked Sendable` conformance.
+public protocol RequestInterceptor: Sendable {
     /// Intercepts a request before transport.
     ///
     /// - Parameter context: The typed request and mutable URL request for the
@@ -138,7 +146,13 @@ public protocol RequestInterceptor {
 /// before status validation and decoding, which allows an interceptor to
 /// recover from an otherwise unsuccessful HTTP status. Transport errors do not
 /// produce an ``InterceptedResponse`` and therefore bypass this phase.
-public protocol ResponseInterceptor {
+///
+/// Interceptors are `Sendable` because an ``API`` can be shared across
+/// isolation domains. Immutable value types satisfy this requirement directly.
+/// An interceptor with mutable reference state should isolate that state in an
+/// actor or provide its own synchronization with a documented safety invariant
+/// for its `@unchecked Sendable` conformance.
+public protocol ResponseInterceptor: Sendable {
     /// Intercepts a response before status validation and decoding.
     ///
     /// - Parameter response: The mutable raw body and HTTP metadata for the
