@@ -54,6 +54,10 @@ A request interceptor can provide an `InterceptedResponse` for a mock, cache,
 or locally recovered result. This example matches the `GetPost` request from
 [Requests and responses](requests-and-responses.md#choose-the-default-encoding):
 
+Request interception begins after Bifrost has built the `URLRequest`, so the
+API still needs a syntactically valid base URL, and any request path must still
+combine with it into a valid URL even when `.return` skips `URLSession`.
+
 ```swift
 struct MockPostInterceptor: RequestInterceptor {
   func intercept<Request>(
